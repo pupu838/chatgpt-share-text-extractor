@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="将公开的 ChatGPT 分享链接提取成干净文字。" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💬</text></svg>" />
+  <title>ChatGPT 对话提取器</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="badge">PUBLIC SHARE → TEXT</div>
+      <h1>ChatGPT 对话提取器</h1>
+      <p>粘贴公开分享链接，把聊天内容整理成可复制、可下载的纯文字。</p>
+
+      <form id="extractForm" class="card form-card">
+        <label for="shareUrl">分享链接</label>
+        <div class="input-row">
+          <input id="shareUrl" name="shareUrl" type="url" required
+            autocomplete="off" spellcheck="false"
+            placeholder="https://chatgpt.com/share/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+          <button id="submitBtn" type="submit">提取对话</button>
+        </div>
+        <p class="hint">仅处理公开的 <code>chatgpt.com/share/...</code> 链接，不支持私人 <code>/c/...</code> 对话。</p>
+      </form>
+    </section>
+
+    <section id="status" class="status hidden" aria-live="polite"></section>
+
+    <section id="result" class="card result hidden">
+      <header class="result-head">
+        <div>
+          <div class="eyebrow">提取结果</div>
+          <h2 id="title">ChatGPT 分享对话</h2>
+          <div id="meta" class="meta"></div>
+        </div>
+        <div class="actions">
+          <button id="copyBtn" class="secondary" type="button">复制文字</button>
+          <button id="downloadBtn" class="secondary" type="button">下载 .txt</button>
+        </div>
+      </header>
+      <div id="warnings" class="warnings hidden"></div>
+      <pre id="transcript"></pre>
+    </section>
+
+    <section class="help-grid">
+      <article>
+        <h3>为什么不能只在浏览器里抓？</h3>
+        <p>浏览器会受到跨域限制，而且现代分享页的数据可能嵌在 React Server Components 数据中，因此提取工作放在服务端完成。</p>
+      </article>
+      <article>
+        <h3>失败时怎么办？</h3>
+        <p>如果链接被删除、需要登录、属于受限工作区，或页面结构发生变化，页面会显示明确错误。你仍可打开原分享页手动复制。</p>
+      </article>
+      <article>
+        <h3>隐私说明</h3>
+        <p>本项目不需要 ChatGPT 账号、Cookie 或 API Key，也不会尝试读取私人聊天。部署者可自行增加日志或存储策略。</p>
+      </article>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>

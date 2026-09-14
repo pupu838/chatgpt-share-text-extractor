@@ -1,0 +1,19 @@
+{
+  "name": "chatgpt-share-text-extractor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Paste a public ChatGPT share link and extract the conversation as clean text.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "chatgpt-share-parser": "^0.1.1",
+    "express": "^5.1.0"
+  }
+}
