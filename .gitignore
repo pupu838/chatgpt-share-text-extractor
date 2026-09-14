@@ -7,3 +7,4 @@ edgeone-deploy.zip
 server.stdout.log
 server.stderr.log
 .playwright-cli/
+long-image-preview.png

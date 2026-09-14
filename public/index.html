@@ -39,10 +39,22 @@
         <div class="actions">
           <button id="copyBtn" class="secondary" type="button">复制文字</button>
           <button id="downloadBtn" class="secondary" type="button">下载 .txt</button>
+          <button id="downloadImageBtn" class="secondary" type="button" disabled>下载长图 PNG</button>
         </div>
       </header>
       <div id="warnings" class="warnings hidden"></div>
       <pre id="transcript"></pre>
+      <section id="imageResult" class="image-result hidden">
+        <div class="image-result-head">
+          <div>
+            <strong>ChatGPT 风格长图</strong>
+            <span id="imageMeta">正在生成…</span>
+          </div>
+        </div>
+        <div class="image-preview">
+          <img id="longImage" alt="ChatGPT 对话长图预览" />
+        </div>
+      </section>
     </section>
 
     <section class="help-grid">
