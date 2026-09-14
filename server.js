@@ -199,9 +199,9 @@ app.get('/api/media', rateLimit, async (req, res) => {
     const host = target.hostname.toLowerCase();
     const allowed = host === 'chatgpt.com' || host === 'cdn.openai.com' || host.endsWith('.oaiusercontent.com') || host.endsWith('.oaistatic.com');
     if (target.protocol !== 'https:' || !allowed) return res.status(400).json({ ok: false, error: '不支持该媒体地址。' });
-    const upstream = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'image/*' } });
+    const upstream = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'image/*,video/*' } });
     const type = upstream.headers.get('content-type') || '';
-    if (!upstream.ok || !type.startsWith('image/')) return res.status(404).end();
+    if (!upstream.ok || (!type.startsWith('image/') && !type.startsWith('video/'))) return res.status(404).end();
     res.set('Content-Type', type);
     res.set('Cache-Control', 'public, max-age=3600');
     res.send(Buffer.from(await upstream.arrayBuffer()));

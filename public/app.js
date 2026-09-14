@@ -93,7 +93,7 @@ function loadVideo(url) {
       clearTimeout(timer);
       reject(new Error('video unavailable'));
     }, { once: true });
-    video.src = url;
+    video.src = `/api/media?url=${encodeURIComponent(url)}`;
   });
 }
 
