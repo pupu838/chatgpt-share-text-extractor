@@ -15,6 +15,7 @@ A lightweight bilingual tool that extracts only user messages and final ChatGPT 
 - 下载 TXT
 - 自动过滤工具调用、插件占位、搜索提示和思考时间
 - 提取完成后自动生成 ChatGPT 风格对话长图并下载 PNG
+- 长图自动嵌入公开可读取的图片；公开视频可生成首帧封面，无法读取的媒体保留原占位文字
 - 清晰区分：链接无效、分享失效、非公开、限流、网络错误、解析失败等情况
 - 服务端严格限制目标域名，避免成为 SSRF / 任意 URL 代理
 - 不需要 OpenAI API Key、ChatGPT Cookie 或登录凭据

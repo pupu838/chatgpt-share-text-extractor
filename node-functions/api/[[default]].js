@@ -81,7 +81,8 @@ async function readConversation(sourceUrl) {
         role: reply.type,
         text: reply.statement,
         contentType: 'text',
-        createdAt: toIso(reply.createdAt)
+        createdAt: toIso(reply.createdAt),
+        assets: Array.isArray(reply.assets) ? reply.assets : []
       }))
     };
   } catch (directError) {
@@ -91,7 +92,10 @@ async function readConversation(sourceUrl) {
       model: relayed.model || null,
       updatedAt: relayed.updatedAt || null,
       warnings: relayed.warnings || ['已通过境外中转读取公开分享页。'],
-      messages: relayed.messages
+      messages: relayed.messages.map((message) => ({
+        ...message,
+        assets: Array.isArray(message.assets) ? message.assets : []
+      }))
     };
   }
 }
@@ -125,7 +129,8 @@ function errorInfo(error) {
 function isDisplayMessage(message) {
   if (!message || !['user', 'assistant'].includes(message.role) || typeof message.text !== 'string') return false;
   const text = message.text.trim();
-  if (!text || text === 'Original custom instructions no longer available') return false;
+  const hasPublicMedia = Array.isArray(message.assets) && message.assets.some((asset) => /^https:\/\//i.test(asset?.url || ''));
+  if ((!text && !hasPublicMedia) || text === 'Original custom instructions no longer available') return false;
   if (message.role !== 'assistant') return true;
 
   const normalized = text
@@ -170,6 +175,23 @@ app.post('/extract', async (req, res) => {
       : info.code === 'rate_limited' ? 429
       : 502;
     res.status(status).json({ ok: false, code: info.code, error: info.message });
+  }
+});
+
+app.get('/media', async (req, res) => {
+  try {
+    const target = new URL(String(req.query?.url || ''));
+    const host = target.hostname.toLowerCase();
+    const allowed = host === 'chatgpt.com' || host === 'cdn.openai.com' || host.endsWith('.oaiusercontent.com') || host.endsWith('.oaistatic.com');
+    if (target.protocol !== 'https:' || !allowed) return res.status(400).json({ ok: false, error: '不支持该媒体地址。' });
+    const upstream = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'image/*' } });
+    const type = upstream.headers.get('content-type') || '';
+    if (!upstream.ok || !type.startsWith('image/')) return res.status(404).end();
+    res.set('Content-Type', type);
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.send(Buffer.from(await upstream.arrayBuffer()));
+  } catch {
+    res.status(404).end();
   }
 });
 

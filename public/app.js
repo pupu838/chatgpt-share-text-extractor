@@ -47,6 +47,7 @@ function cleanMarkdown(text) {
 }
 
 function wrapLines(ctx, text, maxWidth) {
+  if (!String(text).trim()) return [];
   const lines = [];
   for (const paragraph of String(text).split('\n')) {
     if (!paragraph) {
@@ -66,6 +67,48 @@ function wrapLines(ctx, text, maxWidth) {
     lines.push(line);
   }
   return lines;
+}
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({ kind: 'image', element: image, width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = reject;
+    image.src = `/api/media?url=${encodeURIComponent(url)}`;
+  });
+}
+
+function loadVideo(url) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.preload = 'metadata';
+    const timer = setTimeout(() => reject(new Error('video timeout')), 8000);
+    video.addEventListener('loadeddata', () => {
+      clearTimeout(timer);
+      resolve({ kind: 'video', element: video, width: video.videoWidth, height: video.videoHeight });
+    }, { once: true });
+    video.addEventListener('error', () => {
+      clearTimeout(timer);
+      reject(new Error('video unavailable'));
+    }, { once: true });
+    video.src = url;
+  });
+}
+
+async function loadPublicMedia(message) {
+  const assets = Array.isArray(message.assets) ? message.assets : [];
+  const loaded = await Promise.all(assets.map(async (asset) => {
+    if (!/^https:\/\//i.test(asset?.url || '')) return null;
+    const isVideo = asset.assetType === 'video' || /\.(?:mp4|webm|mov|m4v)(?:$|\?)/i.test(asset.filename || asset.url);
+    try {
+      return isVideo ? await loadVideo(asset.url) : await loadImage(asset.url);
+    } catch {
+      return null;
+    }
+  }));
+  return loaded.filter(Boolean);
 }
 
 function roundedRect(ctx, x, y, width, height, radius) {
@@ -93,7 +136,7 @@ function drawChatGptMark(ctx, x, y) {
   ctx.restore();
 }
 
-function layoutMessage(ctx, message, contentWidth) {
+function layoutMessage(ctx, message, contentWidth, media = []) {
   const isUser = message.role === 'user';
   const fontSize = 27;
   const lineHeight = 43;
@@ -101,7 +144,17 @@ function layoutMessage(ctx, message, contentWidth) {
   const maxTextWidth = isUser ? 650 : contentWidth - 78;
   const lines = wrapLines(ctx, cleanMarkdown(message.text || ''), maxTextWidth);
   const paddingY = isUser ? 22 : 4;
-  return { isUser, lines, lineHeight, maxTextWidth, height: Math.max(48, lines.length * lineHeight + paddingY * 2) };
+  const mediaItems = media.map((item) => {
+    const width = Math.min(650, item.width || 650);
+    const height = Math.min(540, Math.round(width * (item.height || 1) / (item.width || 1)));
+    return { ...item, drawWidth: width, drawHeight: height };
+  });
+  const mediaHeight = mediaItems.reduce((sum, item) => sum + item.drawHeight + 14, 0);
+  const textHeight = lines.length * lineHeight;
+  return {
+    isUser, lines, lineHeight, maxTextWidth, media: mediaItems,
+    height: Math.max(48, textHeight + mediaHeight + paddingY * 2)
+  };
 }
 
 async function generateLongImage(data) {
@@ -115,7 +168,8 @@ async function generateLongImage(data) {
   const contentWidth = width - side * 2;
   const measureCanvas = document.createElement('canvas');
   const measure = measureCanvas.getContext('2d');
-  const layouts = (data.messages || []).map((message) => layoutMessage(measure, message, contentWidth));
+  const mediaByMessage = await Promise.all((data.messages || []).map(loadPublicMedia));
+  const layouts = (data.messages || []).map((message, index) => layoutMessage(measure, message, contentWidth, mediaByMessage[index]));
   const headerHeight = 142;
   const gap = 54;
   const footerHeight = 96;
@@ -148,17 +202,43 @@ async function generateLongImage(data) {
     ctx.font = '27px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif';
     ctx.textBaseline = 'top';
     if (layout.isUser) {
-      const widest = Math.min(layout.maxTextWidth, Math.max(...layout.lines.map((line) => ctx.measureText(line).width), 40));
+      const widestText = layout.lines.length ? Math.max(...layout.lines.map((line) => ctx.measureText(line).width)) : 0;
+      const widestMedia = layout.media.length ? Math.max(...layout.media.map((item) => item.drawWidth)) : 0;
+      const widest = Math.min(layout.maxTextWidth, Math.max(widestText, widestMedia, 40));
       const bubbleWidth = widest + 54;
       const x = width - side - bubbleWidth;
       ctx.fillStyle = '#f4f4f4';
       roundedRect(ctx, x, y, bubbleWidth, layout.height, 28);
+      let contentY = y + 22;
+      layout.media.forEach((item) => {
+        const mediaX = x + bubbleWidth - 27 - item.drawWidth;
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(mediaX, contentY, item.drawWidth, item.drawHeight, 18);
+        ctx.clip();
+        ctx.drawImage(item.element, mediaX, contentY, item.drawWidth, item.drawHeight);
+        ctx.restore();
+        if (item.kind === 'video') drawPlayButton(ctx, mediaX + item.drawWidth / 2, contentY + item.drawHeight / 2);
+        contentY += item.drawHeight + 14;
+      });
       ctx.fillStyle = '#0d0d0d';
-      layout.lines.forEach((line, lineIndex) => ctx.fillText(line, x + 27, y + 22 + lineIndex * layout.lineHeight));
+      layout.lines.forEach((line, lineIndex) => ctx.fillText(line, x + 27, contentY + lineIndex * layout.lineHeight));
     } else {
       drawChatGptMark(ctx, side + 22, y + 24);
+      let contentY = y + 4;
+      layout.media.forEach((item) => {
+        const mediaX = side + 72;
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(mediaX, contentY, item.drawWidth, item.drawHeight, 18);
+        ctx.clip();
+        ctx.drawImage(item.element, mediaX, contentY, item.drawWidth, item.drawHeight);
+        ctx.restore();
+        if (item.kind === 'video') drawPlayButton(ctx, mediaX + item.drawWidth / 2, contentY + item.drawHeight / 2);
+        contentY += item.drawHeight + 14;
+      });
       ctx.fillStyle = '#0d0d0d';
-      layout.lines.forEach((line, lineIndex) => ctx.fillText(line, side + 72, y + 4 + lineIndex * layout.lineHeight));
+      layout.lines.forEach((line, lineIndex) => ctx.fillText(line, side + 72, contentY + lineIndex * layout.lineHeight));
     }
     y += layout.height + gap;
   });
@@ -173,6 +253,22 @@ async function generateLongImage(data) {
   longImage.src = latestImageUrl;
   imageMeta.textContent = `${canvas.width} × ${canvas.height}px · ${(blob.size / 1024 / 1024).toFixed(1)}MB`;
   downloadImageBtn.disabled = false;
+}
+
+function drawPlayButton(ctx, x, y) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(0, 0, 0, .66)';
+  ctx.beginPath();
+  ctx.arc(x, y, 38, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.moveTo(x - 10, y - 16);
+  ctx.lineTo(x + 18, y);
+  ctx.lineTo(x - 10, y + 16);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }
 
 form.addEventListener('submit', async (event) => {
