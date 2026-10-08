@@ -7,11 +7,16 @@ on:
       - public/**
       - node-functions/**
       - scripts/build.mjs
+      - scripts/verify-production.mjs
       - package.json
       - package-lock.json
       - edgeone.json
       - .github/workflows/deploy-edgeone.yml
   workflow_dispatch:
+
+concurrency:
+  group: edgeone-global-production
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -45,3 +50,6 @@ jobs:
       - name: Deploy to production
         if: steps.setup.outputs.configured == 'true'
         run: npx --yes edgeone@latest makers deploy ./dist -n chatgpt-share-text-extractor-global -e production --site china -t "$EDGEONE_API_TOKEN"
+      - name: Verify live front end, optional content and pagination
+        if: steps.setup.outputs.configured == 'true'
+        run: node scripts/verify-production.mjs
