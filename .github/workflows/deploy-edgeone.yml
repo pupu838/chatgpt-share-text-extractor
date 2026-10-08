@@ -44,4 +44,4 @@ jobs:
         if: steps.setup.outputs.configured == 'true'
       - name: Deploy to production
         if: steps.setup.outputs.configured == 'true'
-        run: npx --yes edgeone@latest pages deploy ./dist -n chatgpt-share-text-extractor -e production -t "$EDGEONE_API_TOKEN"
+        run: npx --yes edgeone@latest pages deploy ./dist -n chatgpt-share-text-extractor-global -e production -t "$EDGEONE_API_TOKEN"
