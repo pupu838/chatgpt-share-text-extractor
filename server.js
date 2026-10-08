@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readSharedConversation } from './shared/transcript.js';
+import { readSharedConversation, normalizeOptions } from './shared/transcript.js';
 
 
 const app = express();
@@ -87,7 +87,7 @@ function friendlyError(err) {
 app.post('/api/extract', rateLimit, async (req, res) => {
   try {
     const url = normalizeShareUrl(req.body?.url);
-    const chat = await readSharedConversation(url);
+    const chat = await readSharedConversation(url, normalizeOptions(req.body));
     if (!chat.text) {
       return res.status(422).json({ ok: false, code: 'empty_transcript', error: '未提取到用户消息或 ChatGPT 正式回复。' });
     }
