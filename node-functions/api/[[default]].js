@@ -1,5 +1,5 @@
 import express from 'express';
-import { readSharedConversation } from '../../shared/transcript.js';
+import { readSharedConversation, normalizeOptions } from '../../shared/transcript.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -59,7 +59,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.post('/extract', async (req, res) => {
   try {
     const sourceUrl = normalizeShareUrl(req.body?.url);
-    const chat = await readSharedConversation(sourceUrl);
+    const chat = await readSharedConversation(sourceUrl, normalizeOptions(req.body));
     if (!chat.text) return res.status(422).json({
       ok: false, code: 'empty_transcript', error: '未提取到用户消息或 ChatGPT 正式回复。'
     });
