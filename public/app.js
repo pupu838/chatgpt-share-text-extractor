@@ -1,3 +1,5 @@
+import { paginateLayouts, imagePageHeight, MAX_PAGE_HEIGHT, IMAGE_WIDTH, HEADER_HEIGHT, MESSAGE_GAP } from './pagination.js';
+import { createZip } from './zip.js';
 const form = document.querySelector('#extractForm');
 const input = document.querySelector('#shareUrl');
 const submitBtn = document.querySelector('#submitBtn');
@@ -12,10 +14,19 @@ const downloadBtn = document.querySelector('#downloadBtn');
 const downloadImageBtn = document.querySelector('#downloadImageBtn');
 const imageResult = document.querySelector('#imageResult');
 const imageMeta = document.querySelector('#imageMeta');
-const longImage = document.querySelector('#longImage');
+const imageGallery = document.querySelector('#imageGallery');
+const includeReasoning = document.querySelector('#includeReasoning');
+const includeTools = document.querySelector('#includeTools');
+const includeProgress = document.querySelector('#includeProgress');
 
 let latest = null;
-let latestImageUrl = null;
+let latestImages = [];
+let generationNumber = 0;
+function clearImages() {
+  for (const entry of latestImages) URL.revokeObjectURL(entry.url);
+  latestImages = [];
+  imageGallery.replaceChildren();
+}
 
 function showStatus(message, kind = 'info') {
   statusBox.className = `status ${kind}`;
@@ -142,7 +153,8 @@ function layoutMessage(ctx, message, contentWidth, media = []) {
   const lineHeight = 43;
   ctx.font = `${fontSize}px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif`;
   const maxTextWidth = isUser ? 650 : contentWidth - 78;
-  const lines = wrapLines(ctx, cleanMarkdown(message.text || ''), maxTextWidth);
+  const label = message.section && !['user', 'answer'].includes(message.section) ? '[' + (message.displayRole || '过程') + ']\n' : '';
+  const lines = wrapLines(ctx, label + cleanMarkdown(message.text || ''), maxTextWidth);
   const paddingY = isUser ? 22 : 4;
   const mediaItems = media.map((item) => {
     const width = Math.min(650, item.width || 650);
@@ -158,32 +170,37 @@ function layoutMessage(ctx, message, contentWidth, media = []) {
 }
 
 async function generateLongImage(data) {
+  const generation = ++generationNumber;
+  clearImages();
   imageResult.classList.remove('hidden');
-  imageMeta.textContent = '正在生成…';
+  imageMeta.textContent = '正在测量内容长度…';
   downloadImageBtn.disabled = true;
 
   await document.fonts?.ready;
-  const width = 1080;
+  const width = IMAGE_WIDTH;
   const side = 112;
   const contentWidth = width - side * 2;
-  const measureCanvas = document.createElement('canvas');
-  const measure = measureCanvas.getContext('2d');
+  const measure = document.createElement('canvas').getContext('2d');
+  if (!measure) throw new Error('浏览器不支持 Canvas 画布。');
   const mediaByMessage = await Promise.all((data.messages || []).map(loadPublicMedia));
-  const layouts = (data.messages || []).map((message, index) => layoutMessage(measure, message, contentWidth, mediaByMessage[index]));
-  const headerHeight = 142;
-  const gap = 54;
-  const footerHeight = 96;
-  const naturalHeight = headerHeight + layouts.reduce((sum, item) => sum + item.height + gap, 0) + footerHeight;
-  const maxHeight = 30000;
-  const scale = Math.min(1, maxHeight / naturalHeight);
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(width * scale);
-  canvas.height = Math.round(naturalHeight * scale);
-  const ctx = canvas.getContext('2d');
-  ctx.scale(scale, scale);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, naturalHeight);
+  if (generation !== generationNumber) return;
+  const layouts = (data.messages || []).map((message, index) =>
+    layoutMessage(measure, message, contentWidth, mediaByMessage[index]));
+  const pages = paginateLayouts(layouts);
+  const headerHeight = HEADER_HEIGHT;
+  const gap = MESSAGE_GAP;
+  const fileBase = safeFilename(data.title);
 
+  async function drawPage(page, pageIndex, totalPages) {
+    const naturalHeight = Math.ceil(imagePageHeight(page));
+    if (naturalHeight > MAX_PAGE_HEIGHT) throw new Error('长图分页超过像素限制。');
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = naturalHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('浏览器无法生成长图。');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, width, naturalHeight);
   ctx.fillStyle = '#0d0d0d';
   ctx.font = '700 30px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif';
   ctx.fillText('ChatGPT', side, 66);
@@ -197,8 +214,9 @@ async function generateLongImage(data) {
   ctx.stroke();
 
   let y = headerHeight;
-  layouts.forEach((layout, index) => {
-    const message = data.messages[index];
+  page.forEach((fragment) => {
+    const layout = fragment.layout;
+    const message = data.messages[fragment.messageIndex];
     ctx.font = '27px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif';
     ctx.textBaseline = 'top';
     if (layout.isUser) {
@@ -246,13 +264,61 @@ async function generateLongImage(data) {
   ctx.fillStyle = '#9b9b9b';
   ctx.font = '19px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
   ctx.fillText('Generated from a public ChatGPT share link', side, naturalHeight - 48);
+  ctx.textAlign = 'right';
+  ctx.fillText((pageIndex + 1) + ' / ' + totalPages, width - side, naturalHeight - 48);
 
-  const blob = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error('长图生成失败')), 'image/png'));
-  if (latestImageUrl) URL.revokeObjectURL(latestImageUrl);
-  latestImageUrl = URL.createObjectURL(blob);
-  longImage.src = latestImageUrl;
-  imageMeta.textContent = `${canvas.width} × ${canvas.height}px · ${(blob.size / 1024 / 1024).toFixed(1)}MB`;
-  downloadImageBtn.disabled = false;
+
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG 图片生成失败')), 'image/png');
+    });
+  }
+
+  for (let i = 0; i < pages.length; i++) {
+    if (generation !== generationNumber) return;
+    imageMeta.textContent = '正在生成第 ' + (i + 1) + ' / ' + pages.length + ' 张…';
+    const blob = await drawPage(pages[i], i, pages.length);
+    if (generation !== generationNumber) return;
+    const url = URL.createObjectURL(blob);
+    const filename = fileBase + '-ChatGPT-' + String(i + 1).padStart(2, '0') + '.png';
+    latestImages.push({ blob, url, filename });
+
+    const article = document.createElement('article');
+    article.className = 'image-page';
+    const heading = document.createElement('div');
+    heading.className = 'page-heading';
+    const headingTitle = document.createElement('strong');
+    headingTitle.textContent = '长图 ' + (i + 1) + ' / ' + pages.length;
+    const action = document.createElement('button');
+    action.className = 'secondary';
+    action.type = 'button';
+    action.textContent = '下载这一张 PNG';
+    action.addEventListener('click', () => downloadBlob(blob, filename));
+    heading.append(headingTitle, action);
+    const preview = document.createElement('div');
+    preview.className = 'image-preview';
+    const image = document.createElement('img');
+    image.loading = 'lazy';
+    image.src = url;
+    image.alt = '对话长图第 ' + (i + 1) + ' 张';
+    preview.append(image);
+    article.append(heading, preview);
+    imageGallery.append(article);
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  imageMeta.textContent = '共 ' + latestImages.length + ' 张，每张宽 ' + width + 'px，最高 ' + MAX_PAGE_HEIGHT + 'px，不压缩缩小';
+  downloadImageBtn.textContent = latestImages.length > 1 ? '打包下载全部 ' + latestImages.length + ' 张 ZIP' : '下载长图 PNG';
+  downloadImageBtn.disabled = latestImages.length === 0;
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
 function drawPlayButton(ctx, x, y) {
@@ -273,9 +339,12 @@ function drawPlayButton(ctx, x, y) {
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
+  generationNumber++;
+  clearImages();
   result.classList.add('hidden');
   imageResult.classList.add('hidden');
   downloadImageBtn.disabled = true;
+  downloadImageBtn.textContent = '下载长图 PNG';
   warnings.classList.add('hidden');
   submitBtn.disabled = true;
   submitBtn.textContent = '正在提取…';
@@ -285,7 +354,7 @@ form.addEventListener('submit', async (event) => {
     const response = await fetch('/api/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: input.value.trim() })
+      body: JSON.stringify({ url: input.value.trim(), includeReasoning: includeReasoning.checked, includeTools: includeTools.checked, includeProgress: includeProgress.checked })
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !body.ok) throw new Error(body.error || `请求失败 (${response.status})`);
@@ -339,12 +408,23 @@ downloadBtn.addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
-downloadImageBtn.addEventListener('click', () => {
-  if (!latestImageUrl || !latest) return;
-  const a = document.createElement('a');
-  a.href = latestImageUrl;
-  a.download = `${safeFilename(latest.title)}-ChatGPT.png`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+downloadImageBtn.addEventListener('click', async () => {
+  if (!latestImages.length || !latest) return;
+  downloadImageBtn.disabled = true;
+  try {
+    if (latestImages.length === 1) {
+      downloadBlob(latestImages[0].blob, latestImages[0].filename);
+    } else {
+      imageMeta.textContent = '正在打包 ZIP…';
+      const archive = await createZip(latestImages.map(image => ({
+        name: image.filename, blob: image.blob
+      })));
+      downloadBlob(archive, safeFilename(latest.title) + '-ChatGPT-全部长图.zip');
+      imageMeta.textContent = '共 ' + latestImages.length + ' 张长图，已准备下载';
+    }
+  } catch (error) {
+    imageMeta.textContent = error?.message || '打包失败，请单独下载每张 PNG';
+  } finally {
+    downloadImageBtn.disabled = false;
+  }
 });
