@@ -1,10 +1,5 @@
 import express from 'express';
-import {
-  ChatGptShareAccessError,
-  ChatGptShareFetchError,
-  ChatGptShareParseError,
-  fetchChatGptShare
-} from 'chatgpt-share-parser';
+import { readSharedConversation } from '../../shared/transcript.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -37,77 +32,11 @@ function normalizeShareUrl(input) {
   return url.toString();
 }
 
-function toIso(seconds) {
-  return Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null;
-}
-
-async function fetchViaRelay(sourceUrl) {
-  const response = await fetch('https://chat-share-reader.vercel.app/mcp', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json, text/event-stream'
-    },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'tools/call',
-      params: {
-        name: 'read_shared_chat',
-        arguments: { url: sourceUrl, format: 'json' }
-      }
-    })
-  });
-  if (!response.ok) throw fail(`中转服务返回 ${response.status}`, 'network_error');
-
-  const envelope = await response.json();
-  const text = envelope?.result?.content?.find((item) => item.type === 'text')?.text;
-  if (!text) throw fail('中转服务未返回对话数据。', 'parse_failed');
-  const data = JSON.parse(text);
-  if (!Array.isArray(data.messages)) throw fail('中转服务返回格式无效。', 'parse_failed');
-  return data;
-}
-
-async function readConversation(sourceUrl) {
-  try {
-    const chat = await fetchChatGptShare(sourceUrl);
-    return {
-      title: chat.title,
-      model: chat.aiModel || null,
-      updatedAt: toIso(chat.updatedAt),
-      warnings: [],
-      messages: chat.replies.map((reply, index) => ({
-        index,
-        role: reply.type,
-        text: reply.statement,
-        contentType: 'text',
-        createdAt: toIso(reply.createdAt),
-        assets: Array.isArray(reply.assets) ? reply.assets : []
-      }))
-    };
-  } catch (directError) {
-    const relayed = await fetchViaRelay(sourceUrl);
-    return {
-      title: relayed.title,
-      model: relayed.model || null,
-      updatedAt: relayed.updatedAt || null,
-      warnings: relayed.warnings || ['已通过境外中转读取公开分享页。'],
-      messages: relayed.messages.map((message) => ({
-        ...message,
-        assets: Array.isArray(message.assets) ? message.assets : []
-      }))
-    };
-  }
-}
 
 function errorInfo(error) {
   let code = error?.code || 'extract_failed';
-  if (error instanceof ChatGptShareFetchError) {
-    code = error.status === 404 ? 'not_found'
-      : error.status === 429 ? 'rate_limited'
-      : error.status === 401 || error.status === 403 ? 'not_public'
-      : 'network_error';
-  } else if (error instanceof ChatGptShareAccessError) {
+  if (error?.status === 404) code = 'not_found';
+  if (error?.status === 429) code = 'rate_limited'; else if (error instanceof ChatGptShareAccessError) {
     code = 'not_public';
   } else if (error instanceof ChatGptShareParseError) {
     code = 'parse_failed';
@@ -126,48 +55,17 @@ function errorInfo(error) {
   return { code, message: messages[code] || String(error?.message || '提取失败。') };
 }
 
-function isDisplayMessage(message) {
-  if (!message || !['user', 'assistant'].includes(message.role) || typeof message.text !== 'string') return false;
-  const text = message.text.trim();
-  const hasPublicMedia = Array.isArray(message.assets) && message.assets.some((asset) => /^https:\/\//i.test(asset?.url || ''));
-  if ((!text && !hasPublicMedia) || text === 'Original custom instructions no longer available') return false;
-  if (message.role !== 'assistant') return true;
-
-  const normalized = text
-    .replace(/^[_*]+|[_*]+$/g, '')
-    .trim();
-  if (/^The output of this plugin was redacted\.?$/i.test(normalized)) return false;
-  if (/^(?:Tool parameters|工具参数)\s*:/i.test(normalized)) return false;
-  return !/^(?:已搜索\s*\d+\s*个网站|思考了\s*\d+(?:\.\d+)?s|Searched\s+\d+\s+sites?|Thought for\s+\d+(?:\.\d+)?s)$/i.test(normalized);
-}
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.post('/extract', async (req, res) => {
   try {
     const sourceUrl = normalizeShareUrl(req.body?.url);
-    const chat = await readConversation(sourceUrl);
-    const messages = chat.messages.filter(isDisplayMessage);
-    const text = messages.map((message) => {
-      const role = ({ user: '用户', assistant: 'ChatGPT', tool: '工具' })[message.role] || message.role;
-      return `${role}:\n${message.text.trim()}`;
-    }).join('\n\n--------------------\n\n');
-
-    if (!text) return res.status(422).json({ ok: false, code: 'empty_transcript', error: '未提取到文字消息。' });
-
-    res.json({
-      ok: true,
-      data: {
-        sourceUrl,
-        title: chat.title || 'ChatGPT 分享对话',
-        model: chat.model || null,
-        messageCount: messages.length,
-        updatedAt: chat.updatedAt,
-        warnings: chat.warnings,
-        text,
-        messages
-      }
+    const chat = await readSharedConversation(sourceUrl);
+    if (!chat.text) return res.status(422).json({
+      ok: false, code: 'empty_transcript', error: '未提取到用户消息或 ChatGPT 正式回复。'
     });
+    res.json({ ok: true, data: { sourceUrl, ...chat } });
   } catch (error) {
     const info = errorInfo(error);
     const status = ['invalid_url', 'unsupported_host', 'not_a_share_link'].includes(info.code) ? 400
