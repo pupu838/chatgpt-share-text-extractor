@@ -13,7 +13,7 @@ A lightweight bilingual tool that extracts only user messages and final ChatGPT 
 - 纯文字展示
 - 一键复制
 - 下载 TXT
-- 自动过滤工具调用、插件占位、搜索提示和思考时间
+- 强制只导出用户消息及 ChatGPT 的正式回复，排除思考过程、工具调用、工具输出与进度消息（无法通过 API 开关重新开启）
 - 提取完成后自动生成 ChatGPT 风格对话长图并下载 PNG
 - 长图自动嵌入公开可读取的图片；公开视频可生成首帧封面，无法读取的媒体保留原占位文字
 - 清晰区分：链接无效、分享失效、非公开、限流、网络错误、解析失败等情况
