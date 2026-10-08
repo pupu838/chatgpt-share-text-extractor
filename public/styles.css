@@ -61,3 +61,23 @@ pre { margin: 0; padding: 24px; white-space: pre-wrap; overflow-wrap: anywhere; 
   .actions { width: 100%; }
   .actions button { flex: 1; }
 }
+
+
+/* Opt-in transcript sections */
+.extract-options { margin: 18px 0 2px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
+.extract-options legend { font-weight: 700; color: #e9edf1; padding: 0 6px; font-size: 13px; }
+.extract-options .option-line { display: flex; align-items: center; gap: 11px; font-size: 14px; font-weight: 500; cursor: pointer; margin: 10px 0; }
+.extract-options .option-line input { width: 18px; height: 18px; accent-color: #d5ff42; margin: 0; padding: 0; flex: 0 0 18px; }
+.option-note { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 9px 0 0; }
+/* Every image has its own scrollable preview. Avoid shrinking the source
+   bitmap before export, unlike the former single giant canvas. */
+.image-gallery { display: grid; gap: 28px; }
+.image-page { min-width: 0; }
+.page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 720px; margin: 0 auto 10px; }
+.page-heading strong { font-size: 14px; }
+.page-heading button { min-height: 38px; padding: 0 13px; font-size: 13px; }
+.image-page .image-preview { width: min(100%, 720px); max-height: 65vh; }
+@media (max-width: 720px) {
+  .page-heading { flex-wrap: wrap; }
+  .page-heading button { min-height: 40px; }
+}
