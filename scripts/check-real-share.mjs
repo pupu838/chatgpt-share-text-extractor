@@ -61,3 +61,49 @@ await capture('DEPLOYED_API', async () => {
     warningCount: data.data.warnings?.length ?? 0
   };
 });
+
+await capture('LOCAL_ALL_SECTIONS', async () => {
+  const result = await readSharedConversation(url, {
+    includeReasoning: true, includeTools: true, includeProgress: true
+  });
+  return {
+    ...summarize(result.messages),
+    sections: result.messages.reduce((out, message) => {
+      const k = message.section || 'missing';
+      out[k] = (out[k] || 0) + 1;
+      return out;
+    }, {})
+  };
+});
+await capture('DEPLOYED_ALL_SECTIONS', async () => {
+  const response = await fetch(live, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url, includeReasoning: true, includeTools: true, includeProgress: true
+    }),
+    signal: AbortSignal.timeout(45000)
+  });
+  const data = await response.json();
+  if (!response.ok || !data.ok) return { status: response.status, code: data.code };
+  return {
+    status: response.status,
+    ...summarize(data.data.messages || []),
+    sections: (data.data.messages || []).reduce((out, m) => {
+      const k = m.section || 'missing';
+      out[k] = (out[k] || 0) + 1;
+      return out;
+    }, {})
+  };
+});
+await capture('DEPLOYED_FRONTEND', async () => {
+  const response = await fetch(live.replace('/api/extract', '/'), { signal: AbortSignal.timeout(20000) });
+  const html = await response.text();
+  return {
+    status: response.status,
+    reasoningCheckbox: html.includes('id="includeReasoning"'),
+    toolCheckbox: html.includes('id="includeTools"'),
+    progressCheckbox: html.includes('id="includeProgress"'),
+    imageGallery: html.includes('id="imageGallery"')
+  };
+});
