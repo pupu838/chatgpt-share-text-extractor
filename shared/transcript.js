@@ -1,87 +1,96 @@
 import { decodeLoader, extractLoaderPayload, fetchChatGptShareHtml, parseChatGptShareHtml } from 'chatgpt-share-parser';
 
-const PUBLIC_CONTENT_TYPES = new Set([
-  'text', 'multimodal_text', 'code', 'markdown', 'image', 'text_message'
-]);
-const BLOCKED_CONTENT_TYPES = new Set([
-  'thoughts', 'reasoning', 'reasoning_recap', 'analysis',
-  'tool_response', 'execution_output', 'tool_call', 'function_call',
-  'model_editable_context', 'system_message', 'debug'
-]);
+// By default only users and the last final answer of each turn are exported.
+// Opt-in flags affect only material actually available in the public share.
+const REASONING_TYPES = new Set(['thoughts', 'reasoning_recap', 'reasoning', 'analysis']);
+const TOOL_TYPES = new Set(['tool_response', 'execution_output', 'tool_call', 'function_call']);
+const NEVER_EXPOSE = new Set(['model_editable_context', 'system_message', 'debug']);
+const PUBLIC_TYPES = new Set(['text', 'multimodal_text', 'code', 'markdown', 'image', 'text_message']);
 const NON_ANSWER_PATTERN = /^(?:The output of this plugin was redacted\.?|(?:Tool parameters|工具参数)\s*:|已搜索\s*\d+\s*个网站|思考了\s*\d+(?:\.\d+)?\s*s|Searched\s+\d+\s+sites?|Thought for\s+\d+(?:\.\d+)?\s*s)$/i;
 
-function channelOf(message) {
-  return message.channel ?? message.metadata?.channel ?? message.author?.channel ?? null;
+export function normalizeOptions(options = {}) {
+  return {
+    includeReasoning: options?.includeReasoning === true,
+    includeTools: options?.includeTools === true,
+    includeProgress: options?.includeProgress === true
+  };
 }
 
-function isPublicMessage(message) {
-  if (!message || !['user', 'assistant'].includes(message.role)) return false;
-  if (typeof message.text !== 'string') return false;
-
-  const contentType = message.contentType ?? message.content_type;
-  if (BLOCKED_CONTENT_TYPES.has(contentType)) return false;
-  if (message.role === 'assistant' && contentType && !PUBLIC_CONTENT_TYPES.has(contentType)) return false;
-
-  const text = message.text.trim();
-  const media = Array.isArray(message.assets) && message.assets.some(asset => /^https:\/\//i.test(asset?.url || ''));
-  if ((!text && !media) || text === 'Original custom instructions no longer available') return false;
-
-  if (message.metadata?.is_visually_hidden_from_conversation === true) return false;
-  if (message.role === 'user') return true;
-  if (NON_ANSWER_PATTERN.test(text.replace(/^[_*]+|[_*]+$/g, '').trim())) return false;
-
-  // Explicitly non-final assistant channels/recipients must never appear.
-  const channel = channelOf(message);
-  if (channel && channel !== 'final') return false;
-  const recipient = message.recipient ?? message.metadata?.recipient;
-  if (recipient && recipient !== 'all' && recipient !== 'user') return false;
-  if (message.is_final === false || message.isFinal === false || message.endTurn === false) return false;
-  return true;
+function channelOf(m) {
+  return m?.channel ?? m?.metadata?.channel ?? m?.author?.channel ?? null;
+}
+function categoryOf(m) {
+  if (!m || !['user', 'assistant', 'tool'].includes(m.role) || typeof m.text !== 'string') return 'skip';
+  const type = m.contentType ?? m.content_type;
+  const text = m.text.trim();
+  const hasMedia = Array.isArray(m.assets) && m.assets.some(a => /^https:\/\//i.test(a?.url || ''));
+  if ((!text && !hasMedia) || text === 'Original custom instructions no longer available') return 'skip';
+  if (m.metadata?.is_visually_hidden_from_conversation === true || NEVER_EXPOSE.has(type)) return 'skip';
+  if (m.role === 'user') return 'user';
+  const channel = channelOf(m);
+  if (REASONING_TYPES.has(type) || channel === 'analysis') return 'reasoning';
+  const recipient = m.recipient ?? m.metadata?.recipient;
+  if (m.role === 'tool' || TOOL_TYPES.has(type) || (recipient && !['all', 'user'].includes(recipient)) ||
+      (type === 'code' && m.endTurn !== true && channel !== 'final')) return 'tools';
+  if (channel === 'commentary' || NON_ANSWER_PATTERN.test(text.replace(/^[_*]+|[_*]+$/g, '').trim())) return 'progress';
+  if (channel && channel !== 'final') return 'progress';
+  if (type && !PUBLIC_TYPES.has(type)) return 'skip';
+  return 'answer';
+}
+function outputMessage(m, index, category) {
+  return {
+    index,
+    role: m.role,
+    text: m.text,
+    contentType: m.contentType ?? m.content_type ?? 'text',
+    createdAt: m.createdAt ?? null,
+    assets: Array.isArray(m.assets) ? m.assets : [],
+    section: category,
+    displayRole: category === 'reasoning' ? '思考过程' :
+      category === 'tools' ? '工具过程' : category === 'progress' ? '中间进度' :
+      m.role === 'user' ? '用户' : 'ChatGPT'
+  };
 }
 
-export function filterVisibleMessages(source) {
+export function filterVisibleMessages(source, options = {}) {
   if (!Array.isArray(source)) return [];
+  const opts = normalizeOptions(options);
   const visible = [];
-  let assistantMessages = [];
-
-  function flushAssistantTurn() {
-    if (!assistantMessages.length) return;
-    // Keep all explicitly final messages. For older parsers with no channel
-    // metadata, only the last assistant message of each user turn is shown.
-    // This avoids exposing earlier commentary/progress as independent replies.
-    const finals = assistantMessages.filter(message => channelOf(message) === 'final');
-    const ended = assistantMessages.filter(message => message.endTurn === true);
-    visible.push(...(finals.length ? finals : ended.length ? ended : assistantMessages.slice(-1)));
-
-    assistantMessages = [];
+  let assistantTurn = [];
+  function flush() {
+    if (!assistantTurn.length) return;
+    const candidate = assistantTurn.filter(m => categoryOf(m) === 'answer');
+    const finals = candidate.filter(m => channelOf(m) === 'final');
+    const ended = candidate.filter(m => m.endTurn === true);
+    const keep = new Set(finals.length ? finals : ended.length ? ended : candidate.slice(-1));
+    for (const m of assistantTurn) {
+      const category = categoryOf(m);
+      if (category === 'answer' && keep.has(m)) visible.push(outputMessage(m, visible.length, 'answer'));
+      else if (category === 'reasoning' && opts.includeReasoning) visible.push(outputMessage(m, visible.length, category));
+      else if (category === 'tools' && opts.includeTools) visible.push(outputMessage(m, visible.length, category));
+      else if ((category === 'progress' || category === 'answer') && opts.includeProgress && !keep.has(m)) {
+        visible.push(outputMessage(m, visible.length, 'progress'));
+      }
+    }
+    assistantTurn = [];
   }
-
-  for (const message of source) {
-    if (message?.role === 'user') {
-      flushAssistantTurn();
-      if (isPublicMessage(message)) visible.push(message);
-    } else if (message?.role === 'assistant' && isPublicMessage(message)) {
-      assistantMessages.push(message);
+  for (const m of source) {
+    if (m?.role === 'user') {
+      flush();
+      if (categoryOf(m) === 'user') visible.push(outputMessage(m, visible.length, 'user'));
+    } else if (m?.role === 'assistant' || m?.role === 'tool') {
+      assistantTurn.push(m);
     }
   }
-  flushAssistantTurn();
-
-  return visible.map((message, index) => ({
-    index,
-    role: message.role,
-    text: message.text,
-    contentType: message.contentType ?? message.content_type ?? 'text',
-    createdAt: message.createdAt ?? null,
-    assets: Array.isArray(message.assets) ? message.assets : []
-  }));
+  flush();
+  return visible;
 }
 
 export function formatTranscript(messages) {
-  return messages.map(message =>
-    `${message.role === 'user' ? '用户' : 'ChatGPT'}:\n${message.text.trim()}`
+  return messages.map(m =>
+    (m.displayRole || (m.role === 'user' ? '用户' : m.role === 'tool' ? '工具过程' : 'ChatGPT')) + ':\n' + m.text.trim()
   ).join('\n\n--------------------\n\n');
 }
-
 
 const isObject = x => x !== null && typeof x === 'object' && !Array.isArray(x);
 const iso = x => Number.isFinite(x) ? new Date(x * 1000).toISOString() : null;
@@ -153,12 +162,12 @@ export function mapDirectMessages(replies, data) {
   });
 }
 
-async function readDirect(sourceUrl) {
+async function readDirect(sourceUrl, options) {
   const html = await fetchChatGptShareHtml(sourceUrl);
   const parsed = parseChatGptShareHtml(html);
   const raw = getRawConversation(html);
   if (!raw) throw new Error('无法读取原始消息元数据。');
-  const messages = filterVisibleMessages(mapDirectMessages(parsed.replies, raw));
+  const messages = filterVisibleMessages(mapDirectMessages(parsed.replies, raw), options);
   return {
     title: parsed.title || 'ChatGPT 分享对话',
     model: parsed.aiModel || null,
@@ -185,7 +194,7 @@ function mapRelayMessage(message) {
   return { ...message, assets };
 }
 
-export async function readViaRelay(sourceUrl, fetchImpl) {
+export async function readViaRelay(sourceUrl, fetchImpl, options = {}) {
   const collected = [];
   let offset = 0;
   let firstPage = null;
@@ -201,7 +210,7 @@ export async function readViaRelay(sourceUrl, fetchImpl) {
           name: 'read_shared_chat',
           arguments: {
             url: sourceUrl, format: 'json',
-            include_reasoning: false, include_tool_output: false,
+            include_reasoning: options.includeReasoning === true, include_tool_output: options.includeTools === true,
             offset, limit: 200
           }
         }
@@ -235,7 +244,7 @@ export async function readViaRelay(sourceUrl, fetchImpl) {
       if (Number.isFinite(expected) && offset + payload.messages.length < expected) {
         throw Object.assign(new Error('对话未读取完整。'), { code: 'parse_failed' });
       }
-      const messages = filterVisibleMessages(collected);
+      const messages = filterVisibleMessages(collected, options);
       const warnings = Array.isArray(firstPage.warnings) ? [...firstPage.warnings] : [];
       if (collected.some(m => m.text?.includes('…[message truncated at'))) {
         warnings.push('备用读取服务已截断过长的单条消息。');
@@ -258,12 +267,12 @@ export async function readViaRelay(sourceUrl, fetchImpl) {
   throw Object.assign(new Error('对话页数超过读取上限。'), { code: 'parse_failed' });
 }
 
-export async function readSharedConversation(sourceUrl, fetchImpl = fetch) {
+export async function readSharedConversation(sourceUrl, options = {}, fetchImpl = fetch) {
   try {
-    return await readDirect(sourceUrl);
+    return await readDirect(sourceUrl, options);
   } catch (directError) {
     try {
-      return await readViaRelay(sourceUrl, fetchImpl);
+      return await readViaRelay(sourceUrl, fetchImpl, options);
     } catch {
       const status = directError.status;
       throw Object.assign(directError, {
