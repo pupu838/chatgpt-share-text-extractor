@@ -1,54 +1,8 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  ChatGptShareAccessError,
-  ChatGptShareFetchError,
-  ChatGptShareParseError,
-  fetchChatGptShare
-} from 'chatgpt-share-parser';
+import { readSharedConversation } from './shared/transcript.js';
 
-function toIso(seconds) {
-  return Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null;
-}
-
-async function extractTranscript(url) {
-  try {
-    const chat = await fetchChatGptShare(url);
-    const messages = chat.replies.map((reply, index) => ({
-      index,
-      role: reply.type,
-      text: reply.statement,
-      contentType: 'text',
-      createdAt: toIso(reply.createdAt),
-      assets: Array.isArray(reply.assets) ? reply.assets : []
-    }));
-
-    return {
-      title: chat.title,
-      model: chat.aiModel || null,
-      messageCount: messages.length,
-      updatedAt: toIso(chat.updatedAt),
-      warnings: [],
-      messages
-    };
-  } catch (error) {
-    if (error instanceof ChatGptShareFetchError) {
-      const code = error.status === 404 ? 'not_found'
-        : error.status === 429 ? 'rate_limited'
-        : error.status === 401 || error.status === 403 ? 'not_public'
-        : 'network_error';
-      throw Object.assign(error, { code });
-    }
-    if (error instanceof ChatGptShareAccessError) {
-      throw Object.assign(error, { code: 'not_public' });
-    }
-    if (error instanceof ChatGptShareParseError) {
-      throw Object.assign(error, { code: 'parse_failed' });
-    }
-    throw error;
-  }
-}
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -109,30 +63,6 @@ function normalizeShareUrl(input) {
   return url.toString();
 }
 
-function plainText(chat) {
-  return (chat.messages || [])
-    .filter(isDisplayMessage)
-    .map((m) => {
-      const role = ({ user: '用户', assistant: 'ChatGPT', system: '系统', tool: '工具' })[m.role] || m.role || '未知';
-      return `${role}:\n${m.text.trim()}`;
-    })
-    .join('\n\n--------------------\n\n');
-}
-
-function isDisplayMessage(message) {
-  if (!message || !['user', 'assistant'].includes(message.role) || typeof message.text !== 'string') return false;
-  const text = message.text.trim();
-  const hasPublicMedia = Array.isArray(message.assets) && message.assets.some((asset) => /^https:\/\//i.test(asset?.url || ''));
-  if ((!text && !hasPublicMedia) || text === 'Original custom instructions no longer available') return false;
-  if (message.role !== 'assistant') return true;
-
-  const normalized = text
-    .replace(/^[_*]+|[_*]+$/g, '')
-    .trim();
-  if (/^The output of this plugin was redacted\.?$/i.test(normalized)) return false;
-  if (/^(?:Tool parameters|工具参数)\s*:/i.test(normalized)) return false;
-  return !/^(?:已搜索\s*\d+\s*个网站|思考了\s*\d+(?:\.\d+)?s|Searched\s+\d+\s+sites?|Thought for\s+\d+(?:\.\d+)?s)$/i.test(normalized);
-}
 
 function friendlyError(err) {
   const code = err?.code || 'extract_failed';
@@ -157,32 +87,11 @@ function friendlyError(err) {
 app.post('/api/extract', rateLimit, async (req, res) => {
   try {
     const url = normalizeShareUrl(req.body?.url);
-    const chat = await extractTranscript(url);
-    const displayMessages = (chat.messages || []).filter(isDisplayMessage);
-    const text = plainText(chat);
-
-    if (!text) {
-      return res.status(422).json({
-        ok: false,
-        code: 'empty_transcript',
-        error: '页面可访问，但未提取到可显示的文字消息。'
-      });
+    const chat = await readSharedConversation(url);
+    if (!chat.text) {
+      return res.status(422).json({ ok: false, code: 'empty_transcript', error: '未提取到用户消息或 ChatGPT 正式回复。' });
     }
-
-    res.json({
-      ok: true,
-      data: {
-        sourceUrl: url,
-        title: chat.title || 'ChatGPT 分享对话',
-        model: chat.model || null,
-        messageCount: displayMessages.length,
-        updatedAt: chat.updatedAt || null,
-        warnings: Array.isArray(chat.warnings) ? chat.warnings : [],
-        text,
-        messages: displayMessages
-          .map(({ index, role, text, contentType, createdAt, assets }) => ({ index, role, text, contentType, createdAt, assets }))
-      }
-    });
+    res.json({ ok: true, data: { sourceUrl: url, ...chat } });
   } catch (err) {
     const info = friendlyError(err);
     const status = ['invalid_url', 'unsupported_host', 'not_a_share_link'].includes(info.code) ? 400
