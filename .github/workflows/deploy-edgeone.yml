@@ -1,0 +1,47 @@
+name: Deploy EdgeOne Pages
+on:
+  push:
+    branches: [master]
+    paths:
+      - shared/**
+      - public/**
+      - node-functions/**
+      - scripts/build.mjs
+      - package.json
+      - package-lock.json
+      - edgeone.json
+      - .github/workflows/deploy-edgeone.yml
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+    steps:
+      - name: Check whether EdgeOne deployment is configured
+        id: setup
+        shell: bash
+        run: |
+          if [ -z "$EDGEONE_API_TOKEN" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "EDGEONE_API_TOKEN is not configured; GitHub cannot publish to EdgeOne."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "EdgeOne deployment token configured."
+          fi
+      - uses: actions/checkout@v4
+        if: steps.setup.outputs.configured == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.setup.outputs.configured == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+        if: steps.setup.outputs.configured == 'true'
+      - run: npm test && npm run build
+        if: steps.setup.outputs.configured == 'true'
+      - name: Deploy to production
+        if: steps.setup.outputs.configured == 'true'
+        run: npx --yes edgeone@latest pages deploy ./dist -n chatgpt-share-text-extractor -e production -t "$EDGEONE_API_TOKEN"
