@@ -34,13 +34,11 @@ function normalizeShareUrl(input) {
 
 
 function errorInfo(error) {
-  let code = error?.code || 'extract_failed';
-  if (error?.status === 404) code = 'not_found';
-  if (error?.status === 429) code = 'rate_limited'; else if (error instanceof ChatGptShareAccessError) {
-    code = 'not_public';
-  } else if (error instanceof ChatGptShareParseError) {
-    code = 'parse_failed';
-  }
+  const code = error?.code || (
+    error?.status === 404 ? 'not_found' :
+    error?.status === 401 || error?.status === 403 ? 'not_public' :
+    error?.status === 429 ? 'rate_limited' : 'extract_failed'
+  );
 
   const messages = {
     invalid_url: '链接格式无效。',
