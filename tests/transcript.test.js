@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterVisibleMessages, formatTranscript, mapDirectMessages, readViaRelay } from '../shared/transcript.js';
+import { normalizeOptions, filterVisibleMessages, formatTranscript, mapDirectMessages, readViaRelay } from '../shared/transcript.js';
 
 test('omits thinking, reasoning, commentary and tool output, keeping final answer verbatim', () => {
   const fencedCode = String.fromCharCode(96).repeat(3) + 'js\nanswer()\n' + String.fromCharCode(96).repeat(3);
@@ -98,4 +98,45 @@ test('relay fails closed on invalid pages', async () => {
     json: async () => ({ result: { content: [{ type: 'text', text: '{"title":"Broken","messages":[],"messageCount":10,"window":{"nextOffset":0}}' }] } })
   });
   await assert.rejects(() => readViaRelay('https://chatgpt.com/share/synthetic', mockFetch), /分页数据不完整/);
+});
+
+test('rejects all attempted opt-in flags from callers and public APIs', async () => {
+  assert.deepEqual(normalizeOptions({
+    includeReasoning: true, includeTools: true, includeProgress: true
+  }), { includeReasoning: false, includeTools: false, includeProgress: false });
+  const messages = [
+    { role: 'user', text: 'Question' },
+    { role: 'assistant', text: 'Reasoning', contentType: 'reasoning_recap' },
+    { role: 'assistant', text: 'Tool output', contentType: 'tool_response' },
+    { role: 'assistant', text: 'Commentary', channel: 'commentary' },
+    { role: 'assistant', text: 'Answer', channel: 'final' }
+  ];
+  assert.deepEqual(filterVisibleMessages(messages, {
+    includeReasoning: true, includeTools: true, includeProgress: true
+  }).map(m => m.text), ['Question', 'Answer']);
+});
+
+test('even explicit relay options cannot re-enable internal content', async () => {
+  const requests = [];
+  const mockFetch = async (_url, init) => {
+    const args = JSON.parse(init.body).params.arguments;
+    requests.push(args);
+    return {
+      ok: true,
+      json: async () => ({
+        result: { content: [{
+          type: 'text',
+          text: JSON.stringify({
+            title: 'Test', messageCount: 2,
+            messages: [{ role: 'user', text: 'Q' }, { role: 'assistant', text: 'A', channel: 'final' }]
+          })
+        }] }
+      })
+    };
+  };
+  await readViaRelay('https://chatgpt.com/share/test', mockFetch, {
+    includeReasoning: true, includeTools: true, includeProgress: true
+  });
+  assert.equal(requests[0].include_reasoning, false);
+  assert.equal(requests[0].include_tool_output, false);
 });
