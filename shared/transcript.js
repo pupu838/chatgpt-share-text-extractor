@@ -8,11 +8,14 @@ const NEVER_EXPOSE = new Set(['model_editable_context', 'system_message', 'debug
 const PUBLIC_TYPES = new Set(['text', 'multimodal_text', 'code', 'markdown', 'image', 'text_message']);
 const NON_ANSWER_PATTERN = /^(?:The output of this plugin was redacted\.?|(?:Tool parameters|工具参数)\s*:|已搜索\s*\d+\s*个网站|思考了\s*\d+(?:\.\d+)?\s*s|Searched\s+\d+\s+sites?|Thought for\s+\d+(?:\.\d+)?\s*s)$/i;
 
-export function normalizeOptions(options = {}) {
+// Deliberately non-configurable: exported transcripts contain only user messages
+// and ChatGPT's final answers. Neither the UI nor API can opt back into
+// reasoning, commentary, tool calls or tool output.
+export function normalizeOptions() {
   return {
-    includeReasoning: options?.includeReasoning === true,
-    includeTools: options?.includeTools === true,
-    includeProgress: options?.includeProgress === true
+    includeReasoning: false,
+    includeTools: false,
+    includeProgress: false
   };
 }
 
@@ -54,7 +57,7 @@ function outputMessage(m, index, category) {
 
 export function filterVisibleMessages(source, options = {}) {
   if (!Array.isArray(source)) return [];
-  const opts = normalizeOptions(options);
+  const opts = normalizeOptions();
   const visible = [];
   let assistantTurn = [];
   function flush() {
@@ -167,7 +170,7 @@ async function readDirect(sourceUrl, options) {
   const parsed = parseChatGptShareHtml(html);
   const raw = getRawConversation(html);
   if (!raw) throw new Error('无法读取原始消息元数据。');
-  const messages = filterVisibleMessages(mapDirectMessages(parsed.replies, raw), options);
+  const messages = filterVisibleMessages(mapDirectMessages(parsed.replies, raw));
   return {
     title: parsed.title || 'ChatGPT 分享对话',
     model: parsed.aiModel || null,
@@ -210,7 +213,7 @@ export async function readViaRelay(sourceUrl, fetchImpl, options = {}) {
           name: 'read_shared_chat',
           arguments: {
             url: sourceUrl, format: 'json',
-            include_reasoning: options.includeReasoning === true, include_tool_output: options.includeTools === true,
+            include_reasoning: false, include_tool_output: false,
             offset, limit: 200
           }
         }
@@ -244,7 +247,7 @@ export async function readViaRelay(sourceUrl, fetchImpl, options = {}) {
       if (Number.isFinite(expected) && offset + payload.messages.length < expected) {
         throw Object.assign(new Error('对话未读取完整。'), { code: 'parse_failed' });
       }
-      const messages = filterVisibleMessages(collected, options);
+      const messages = filterVisibleMessages(collected);
       const warnings = Array.isArray(firstPage.warnings) ? [...firstPage.warnings] : [];
       if (collected.some(m => m.text?.includes('…[message truncated at'))) {
         warnings.push('备用读取服务已截断过长的单条消息。');
@@ -267,12 +270,12 @@ export async function readViaRelay(sourceUrl, fetchImpl, options = {}) {
   throw Object.assign(new Error('对话页数超过读取上限。'), { code: 'parse_failed' });
 }
 
-export async function readSharedConversation(sourceUrl, options = {}, fetchImpl = fetch) {
+export async function readSharedConversation(sourceUrl, _options = {}, fetchImpl = fetch) {
   try {
-    return await readDirect(sourceUrl, options);
+    return await readDirect(sourceUrl);
   } catch (directError) {
     try {
-      return await readViaRelay(sourceUrl, fetchImpl, options);
+      return await readViaRelay(sourceUrl, fetchImpl);
     } catch {
       const status = directError.status;
       throw Object.assign(directError, {
