@@ -21,3 +21,7 @@ jobs:
       - run: node --check server.js
       - run: node --check 'node-functions/api/[[default]].js'
       - run: node --check dist/shared/transcript.js
+
+      - run: node --check public/app.js
+      - run: node --check public/pagination.js
+      - run: node --check public/zip.js
