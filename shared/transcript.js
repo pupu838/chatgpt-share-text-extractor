@@ -185,7 +185,7 @@ function mapRelayMessage(message) {
   return { ...message, assets };
 }
 
-async function readViaRelay(sourceUrl, fetchImpl) {
+export async function readViaRelay(sourceUrl, fetchImpl) {
   const collected = [];
   let offset = 0;
   let firstPage = null;
