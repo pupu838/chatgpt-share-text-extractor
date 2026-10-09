@@ -22,22 +22,23 @@ test('options default to false, even if supplied as strings', () => {
   assert.deepEqual(filterVisibleMessages(testMessages).map(m => m.text), ['Q', '**Final**']);
 });
 
-test('reasoning, tools and progress can be enabled independently', () => {
-  assert.deepEqual(filterVisibleMessages(testMessages, { includeReasoning: true }).map(m=>m.text), [
-    'Q','Public thinking summary','Public recap','**Final**'
-  ]);
-  assert.deepEqual(filterVisibleMessages(testMessages, { includeTools: true }).map(m=>m.text), [
-    'Q','Tool arguments','Tool output','**Final**'
-  ]);
-  assert.deepEqual(filterVisibleMessages(testMessages, { includeProgress: true }).map(m=>m.text), [
-    'Q','Searching...','**Final**'
-  ]);
-  const all=filterVisibleMessages(testMessages, { includeReasoning: true, includeTools:true, includeProgress:true });
-  assert.equal(all.length, 7);
-  assert(!all.some(m=>m.text==='system memory'));
-  assert(formatTranscript(all).includes('思考过程:\nPublic thinking summary'));
-  assert(formatTranscript(all).includes('工具过程:\nTool arguments'));
-  assert(formatTranscript(all).includes('中间进度:\nSearching...'));
+test('reasoning, tools and progress are never exposed, even if requested explicitly', () => {
+  const requestedModes = [
+    { includeReasoning: true },
+    { includeTools: true },
+    { includeProgress: true },
+    { includeReasoning: true, includeTools: true, includeProgress: true }
+  ];
+  for (const mode of requestedModes) {
+    assert.deepEqual(normalizeOptions(mode), {
+      includeReasoning: false, includeTools: false, includeProgress: false
+    });
+    const filtered = filterVisibleMessages(testMessages, mode);
+    assert.deepEqual(filtered.map(m => m.text), ['Q', '**Final**']);
+    const transcript = formatTranscript(filtered);
+    assert(!/Public thinking summary|Public recap|Tool arguments|Tool output|Searching\.\.\.|system memory/.test(transcript));
+    assert(transcript.includes('ChatGPT:\n**Final**'));
+  }
 });
 
 function layout(lines, media=[], isUser=false) {
