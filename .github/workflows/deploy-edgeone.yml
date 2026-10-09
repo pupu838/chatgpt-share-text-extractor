@@ -5,6 +5,7 @@ on:
     paths:
       - shared/**
       - public/**
+      - tests/**
       - node-functions/**
       - scripts/build.mjs
       - scripts/verify-production.mjs
