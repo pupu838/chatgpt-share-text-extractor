@@ -11,16 +11,19 @@ async function check() {
   });
   if (!response.ok) throw new Error('Front page status: ' + response.status);
   const html = await response.text();
-  for (const id of ['includeReasoning','includeTools','includeProgress','imageGallery']) {
-    if (!html.includes('id="' + id + '"')) throw new Error('Missing frontend element: ' + id);
+  if (!html.includes('id="imageGallery"')) throw new Error('Missing PNG gallery');
+  for (const id of ['includeReasoning','includeTools','includeProgress']) {
+    if (html.includes('id="' + id + '"')) throw new Error('Obsolete intermediate-content toggle: ' + id);
   }
-  for (const file of ['/pagination.js','/zip.js','/app.js']) {
+  for (const file of ['/pagination.js','/zip.js','/page-badge.js','/app.js']) {
     const asset = await fetch(base + file + cacheBust(), {
       cache: 'no-store', signal: AbortSignal.timeout(15000)
     });
     if (!asset.ok) throw new Error('Missing frontend asset: ' + file);
     const code = await asset.text();
-    if (!code || (file === '/app.js' && !code.includes('paginateLayouts'))) {
+    if (!code || (file === '/app.js' &&
+        (!code.includes('paginateLayouts') || !code.includes('drawPageNumberBadge'))) ||
+        (file === '/page-badge.js' && !code.includes('export function drawPageNumberBadge'))) {
       throw new Error('Outdated frontend script: ' + file);
     }
   }
@@ -41,17 +44,15 @@ async function check() {
       clean.some(m => m.section === 'reasoning' || m.section === 'tools' || m.section === 'progress')) {
     throw new Error('Default output includes non-final content or misses answers');
   }
-  const expanded = await query({ includeReasoning: true, includeTools: true, includeProgress: true });
-  for (const section of ['reasoning','tools','progress','answer']) {
-    if (!expanded.some(m => m.section === section)) throw new Error('Opt-in section not available: ' + section);
+  const attemptedOptIn = await query({ includeReasoning: true, includeTools: true, includeProgress: true });
+  if (JSON.stringify(attemptedOptIn.map(m => [m.role, m.text])) !==
+      JSON.stringify(clean.map(m => [m.role, m.text]))) {
+    throw new Error('API exposed non-final content when opt-in flags were supplied');
   }
   console.log('PRODUCTION_VERIFIED', JSON.stringify({
-    defaultMessages: clean.length,
-    optInMessages: expanded.length,
-    reasoning: expanded.filter(m => m.section === 'reasoning').length,
-    tools: expanded.filter(m => m.section === 'tools').length,
-    progress: expanded.filter(m => m.section === 'progress').length,
-    allThreeToggles: true,
+    userAndFinalMessages: clean.length,
+    intermediateContentHidden: true,
+    topRightPageBadge: true,
     pngPagination: true,
     zipDownload: true
   }));

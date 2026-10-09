@@ -1,5 +1,6 @@
 import { paginateLayouts, imagePageHeight, MAX_PAGE_HEIGHT, IMAGE_WIDTH, HEADER_HEIGHT, MESSAGE_GAP } from './pagination.js';
 import { createZip } from './zip.js';
+import { drawPageNumberBadge } from './page-badge.js';
 const form = document.querySelector('#extractForm');
 const input = document.querySelector('#shareUrl');
 const submitBtn = document.querySelector('#submitBtn');
@@ -258,11 +259,13 @@ async function generateLongImage(data) {
     y += layout.height + gap;
   });
 
+  // Keep the source credit at the bottom and put the prominent page number
+  // in the upper-right corner of every page instead.
   ctx.fillStyle = '#9b9b9b';
   ctx.font = '19px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
   ctx.fillText('Generated from a public ChatGPT share link', side, naturalHeight - 48);
-  ctx.textAlign = 'right';
-  ctx.fillText((pageIndex + 1) + ' / ' + totalPages, width - side, naturalHeight - 48);
+  drawPageNumberBadge(ctx, pageIndex, totalPages, width, side);
 
 
     return new Promise((resolve, reject) => {
