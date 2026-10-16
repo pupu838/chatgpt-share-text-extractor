@@ -33,11 +33,14 @@ jobs:
           cat > inspect.mjs <<'EOF'
           import { Makers } from '@edgeone/makers-sdk';
           const client = new Makers({token:process.env.MAKERS_API_TOKEN,region:'china'});
-          const wanted = new Set(['chatgpt-share-text-extractor-global','classroom-enhancer-workbench']);
+          const wanted = new Set(['chatgpt-share-text-extractor-global','classroom-enhancer-workbench','classroom-enhancer-global']);
           for await (const entry of client.projects.listAll()) {
             if (!wanted.has(entry.name)) continue;
             const project = await client.projects.get({projectId:entry.projectId});
             console.log('COMPARISON', JSON.stringify({name:project.name,projectId:project.projectId,area:project.area,domain:project.presetDomain,status:project.status}));
+            const response=await fetch('https://'+project.presetDomain,{signal:AbortSignal.timeout(20000)});
+            const html=await response.text();
+            console.log('HEALTH',JSON.stringify({name:project.name,status:response.status,title:html.match(/<title>(.*?)<\/title>/)?.[1],classroom:html.includes('课堂工作台')}));
           }
           EOF
           node inspect.mjs
