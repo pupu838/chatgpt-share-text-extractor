@@ -33,19 +33,11 @@ jobs:
           cat > inspect.mjs <<'EOF'
           import { Makers } from '@edgeone/makers-sdk';
           const client = new Makers({token:process.env.MAKERS_API_TOKEN,region:'china'});
-          const project = await client.projects.get({projectId:'makers-opftpe9wmzlo'});
-          console.log('Project:',project.name);
-          console.log('Project ID:',project.projectId);
-          console.log('Project status:',project.status);
-          console.log('Fixed project domain:',project.presetDomain ?? '(not assigned yet)');
-          console.log('Area:',project.area ?? '(not reported)');
-          const site = 'https://' + project.presetDomain;
-          const response = await fetch(site, {headers:{'user-agent':'Classroom-Workbench-Healthcheck/1.0'}, signal:AbortSignal.timeout(15000)});
-          const html = await response.text();
-          console.log('Live URL:',site);
-          console.log('HTTP status:',response.status);
-          console.log('HTML bytes:',html.length);
-          console.log('Expected page content:',html.includes('课堂工作台'));
-          if (!response.ok || !html.includes('课堂工作台')) throw new Error('Workbench health check failed');
+          const wanted = new Set(['chatgpt-share-text-extractor-global','classroom-enhancer-workbench']);
+          for await (const entry of client.projects.listAll()) {
+            if (!wanted.has(entry.name)) continue;
+            const project = await client.projects.get({projectId:entry.projectId});
+            console.log('COMPARISON', JSON.stringify({name:project.name,projectId:project.projectId,area:project.area,domain:project.presetDomain,status:project.status}));
+          }
           EOF
           node inspect.mjs
