@@ -1,5 +1,5 @@
 name: Deploy Classroom Workbench (EdgeOne)
-# Deploy connector 0.4.2 network diagnostics
+# Persistent overseas classroom entry
 on:
   workflow_dispatch:
   push:
@@ -23,6 +23,48 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Prepare persistent overseas project and connector origin
+        id: target
+        env:
+          MAKERS_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/classroom-sdk"
+          cd "$RUNNER_TEMP/classroom-sdk"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --silent @edgeone/makers-sdk
+          cat > prepare.mjs <<'EOF'
+          import { Makers } from '@edgeone/makers-sdk';
+          import { appendFileSync } from 'node:fs';
+          const client=new Makers({token:process.env.MAKERS_API_TOKEN,region:'china'});
+          const name='classroom-enhancer-global';
+          let project;
+          for await(const p of client.projects.listAll({name})){if(p.name===name){project=p;break;}}
+          if(!project)project=await client.projects.create({name,area:'overseas'});
+          const detail=await client.projects.get({projectId:project.projectId});
+          if(detail.area!=='overseas')throw Error('Unexpected project area');
+          if(!detail.presetDomain || !/^[a-z0-9.-]+$/.test(detail.presetDomain))throw Error('Missing safe preset domain');
+          const origin='https://'+detail.presetDomain;
+          console.log('Persistent URL:',origin);
+          console.log('Project ID:',detail.projectId);
+          appendFileSync(process.env.GITHUB_OUTPUT,'origin='+origin+'\n');
+          EOF
+          node prepare.mjs
+          cd "$GITHUB_WORKSPACE"
+          python3 - <<'PY'
+          import os,pathlib,zipfile
+          old='https://classroom-enhancer-workbench-1um3o2ms.edgeone.cool'
+          output=pathlib.Path(os.environ['GITHUB_OUTPUT']).read_text()
+          origin=[s.split('=',1)[1] for s in output.splitlines() if s.startswith('origin=')][-1]
+          for p in [pathlib.Path('portal/school-connector.js'),pathlib.Path('portal/Classroom_Connector.user.js'),pathlib.Path('connector-extension/connector.js')]:
+              text=p.read_text()
+              if old not in text: raise RuntimeError('Missing connector origin in '+str(p))
+              p.write_text(text.replace(old,origin))
+          with zipfile.ZipFile('portal/Classroom_Connector_Edge.zip','w',zipfile.ZIP_DEFLATED) as z:
+              for p in sorted(pathlib.Path('connector-extension').iterdir()):z.write(p,p.name)
+          with zipfile.ZipFile('portal/Classroom_Connector_Edge.zip') as z:
+              assert origin.encode() in z.read('connector.js')
+              assert old.encode() not in z.read('connector.js')
+          PY
       - name: Verify workbench
         run: |
           node --check portal/app.js
@@ -39,4 +81,4 @@ jobs:
           EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
         run: |
           test -n "$EDGEONE_API_TOKEN"
-          npx --yes edgeone@latest makers deploy ./portal -n classroom-enhancer-workbench -e production --site china -t "$EDGEONE_API_TOKEN"
+          npx --yes edgeone@latest makers deploy ./portal -n classroom-enhancer-global -e production --site china -t "$EDGEONE_API_TOKEN"
