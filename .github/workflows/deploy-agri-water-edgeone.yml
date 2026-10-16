@@ -55,6 +55,24 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Validate 100 papers and CNKI author-constrained search
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          node <<'JS'
+          const fs=require('fs');
+          const html=fs.readFileSync('dist/index.html','utf8');
+          const scripts=[...html.matchAll(/<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi)];
+          if (!scripts.length) throw new Error('Missing JS scripts');
+          for (const m of scripts) new Function(m[1]);
+          const found=html.match(/const papers=(\\[[\\s\\S]*?\\]);\\s*const categories=/);
+          if (!found) throw new Error('Paper JSON array missing');
+          const papers=JSON.parse(found[1]);
+          if (papers.length!==100 || papers.some(p=>!p.title||!p.authors)) throw new Error('Paper data incomplete');
+          if (!html.includes("TI%=") || !html.includes("AND AU=") || !html.includes("data-cnki")) throw new Error('CNKI combined search missing');
+          console.log('PASS: 100 papers, script syntax, CNKI title AND author search.');
+          JS
+
       - name: Publish as a NEW EdgeOne Makers site
         if: steps.cache.outputs.cache-hit != 'true'
         env:
