@@ -55,7 +55,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Validate 100 papers and CNKI author-constrained search
+      - name: Validate 100 papers and CORS-safe CNKI search
         if: steps.cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
@@ -72,8 +72,10 @@ jobs:
           if(start<0||end<start)throw new Error('Paper JSON array missing');
           const papers=JSON.parse(html.slice(start+marker.length,end));
           if (papers.length!==100 || papers.some(p=>!p.title||!p.authors)) throw new Error('Paper data incomplete');
-          if (!html.includes("TI%=") || !html.includes("AND AU=") || !html.includes("data-cnki")) throw new Error('CNKI combined search missing');
-          console.log('PASS: 100 papers, script syntax, CNKI title AND author search.');
+          if (!html.includes("cnkiSearchUrl") || !html.includes("encodeURIComponent(keywords)") || !html.includes("korder=SU")) throw new Error('CNKI GET title+author link missing');
+          if (!html.includes("TI%=") || !html.includes("AND AU=") || !html.includes("copyCnkiExpert")) throw new Error('CNKI strict expert search expression missing');
+          if (html.includes("form.method='POST'") || html.includes("submitCnkiExpert") || html.includes("data-cnki")) throw new Error('Old CORS-blocked CNKI form still exists');
+          console.log('PASS: 100 papers, script syntax, CNKI GET title+author search, expert expression copy, no cross-site POST.');
           JS
 
       - name: Publish as a NEW EdgeOne Makers site
