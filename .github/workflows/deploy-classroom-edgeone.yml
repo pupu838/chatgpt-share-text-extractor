@@ -81,4 +81,4 @@ jobs:
           EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
         run: |
           test -n "$EDGEONE_API_TOKEN"
-          npx --yes edgeone@latest makers deploy ./portal -n classroom-enhancer-global -e production --site china -t "$EDGEONE_API_TOKEN"
+          npx --yes edgeone@latest makers deploy ./portal -n classroom-enhancer-global -e production --area overseas --site china -t "$EDGEONE_API_TOKEN"
