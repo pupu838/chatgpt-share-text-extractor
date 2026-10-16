@@ -1,5 +1,5 @@
 name: Deploy Classroom Workbench (EdgeOne)
-# Deploy connector 0.4.1 replay validation fix
+# Deploy connector 0.4.2 network diagnostics
 on:
   workflow_dispatch:
   push:
