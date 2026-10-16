@@ -26,6 +26,9 @@ jobs:
         run: |
           node --check portal/app.js
           node --check portal/capture.js
+          node --check portal/school-connector.js
+          test -s portal/Classroom_Connector_Edge.zip
+          test -s portal/Classroom_Connector.user.js
           python3 -m py_compile portal/fetch_audio.py
           test -s portal/index.html
           test -s portal/style.css
