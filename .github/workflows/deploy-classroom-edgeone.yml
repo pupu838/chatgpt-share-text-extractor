@@ -1,5 +1,5 @@
 name: Deploy Classroom Workbench (EdgeOne)
-# Refresh access requested 2026-10-16 15:28 Asia/Shanghai
+# Deploy connector 0.4.1 replay validation fix
 on:
   workflow_dispatch:
   push:
