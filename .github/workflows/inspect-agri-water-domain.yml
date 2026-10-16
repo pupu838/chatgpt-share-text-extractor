@@ -46,6 +46,10 @@ jobs:
           console.log('HTTP status:',response.status);
           console.log('HTML bytes:',html.length);
           console.log('Expected page content:',html.includes('农业水利') && html.includes('遥感'));
+          console.log('New author-restricted CNKI search:',html.includes('cnkiExpertExpression') && html.includes("AND AU=") && html.includes('知网检索（篇名＋作者）'));
+          if (!html.includes('cnkiExpertExpression') || !html.includes("AND AU=") || !html.includes('知网检索（篇名＋作者）')) {
+            throw new Error('CNKI author-filtered change not yet available on live EdgeOne site.');
+          }
           if (!response.ok || !html.includes('农业水利') || !html.includes('遥感')) {
             throw new Error('Live website did not return the expected literature page.');
           }
