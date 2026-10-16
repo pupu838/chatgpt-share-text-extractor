@@ -62,12 +62,15 @@ jobs:
           node <<'JS'
           const fs=require('fs');
           const html=fs.readFileSync('dist/index.html','utf8');
-          const scripts=[...html.matchAll(/<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi)];
-          if (!scripts.length) throw new Error('Missing JS scripts');
-          for (const m of scripts) new Function(m[1]);
-          const found=html.match(/const papers=(\\[[\\s\\S]*?\\]);\\s*const categories=/);
-          if (!found) throw new Error('Paper JSON array missing');
-          const papers=JSON.parse(found[1]);
+          const first=html.lastIndexOf('<script>');
+          const last=html.lastIndexOf('</script>');
+          if(first<0||last<=first)throw new Error('Missing JS script');
+          new Function(html.slice(first+'<script>'.length,last));
+          const marker='const papers=';
+          const start=html.indexOf(marker);
+          const end=html.indexOf(';'+String.fromCharCode(10)+'const categories=',start);
+          if(start<0||end<start)throw new Error('Paper JSON array missing');
+          const papers=JSON.parse(html.slice(start+marker.length,end));
           if (papers.length!==100 || papers.some(p=>!p.title||!p.authors)) throw new Error('Paper data incomplete');
           if (!html.includes("TI%=") || !html.includes("AND AU=") || !html.includes("data-cnki")) throw new Error('CNKI combined search missing');
           console.log('PASS: 100 papers, script syntax, CNKI title AND author search.');
