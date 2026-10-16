@@ -1,0 +1,43 @@
+name: Inspect Agricultural Water Makers Domain
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/inspect-agri-water-domain.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Query EdgeOne project's assigned domain (read-only)
+        shell: bash
+        env:
+          MAKERS_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+        run: |
+          test -n "$MAKERS_API_TOKEN" || { echo "Missing EDGEONE_API_TOKEN"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/makers-inspect"
+          cd "$RUNNER_TEMP/makers-inspect"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --silent @edgeone/makers-sdk
+          cat > inspect.mjs <<'EOF'
+          import { Makers } from '@edgeone/makers-sdk';
+          const client = new Makers({token:process.env.MAKERS_API_TOKEN,region:'china'});
+          const project = await client.projects.get({projectId:'makers-n3bdnbdo1ez0'});
+          console.log('Project:',project.name);
+          console.log('Project ID:',project.projectId);
+          console.log('Project status:',project.status);
+          console.log('Fixed project domain:',project.presetDomain ?? '(not assigned yet)');
+          console.log('Area:',project.area ?? '(not reported)');
+          EOF
+          node inspect.mjs
