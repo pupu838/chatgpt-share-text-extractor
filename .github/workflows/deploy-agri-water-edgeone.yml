@@ -1,0 +1,86 @@
+name: Deploy Agricultural Water Literature (EdgeOne)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/deploy-agri-water-edgeone.yml
+  schedule:
+    - cron: '*/15 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: edgeone-agri-water-literature-production
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout public literature source
+        uses: actions/checkout@v4
+        with:
+          repository: pupu838/water
+          ref: main
+          path: literature-source
+          persist-credentials: false
+
+      - name: Identify source revision
+        id: source
+        shell: bash
+        run: echo "sha=$(git -C literature-source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Skip already published revision
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .published-revisions/agri-water-literature
+          key: agri-water-edgeone-v1-${{ steps.source.outputs.sha }}
+
+      - name: Prepare static site
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          test -s literature-source/index.html
+          mkdir -p dist
+          cp literature-source/index.html dist/index.html
+
+      - name: Set up Node.js
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Publish as a NEW EdgeOne Makers site
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$EDGEONE_API_TOKEN" ]; then
+            echo "::error::EDGEONE_API_TOKEN is absent from this repo's Actions secrets."
+            exit 1
+          fi
+          npx --yes edgeone@latest makers deploy ./dist \
+            -n agri-water-remote-sensing-library \
+            -e production \
+            --site china \
+            -t "$EDGEONE_API_TOKEN"
+
+      - name: Save deployed revision
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p .published-revisions
+          echo "${{ steps.source.outputs.sha }}" > .published-revisions/agri-water-literature
+
+      - name: Avoid duplicate deployments
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .published-revisions/agri-water-literature
+          key: agri-water-edgeone-v1-${{ steps.source.outputs.sha }}
