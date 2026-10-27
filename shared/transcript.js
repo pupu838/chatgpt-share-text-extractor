@@ -2,20 +2,21 @@ import { decodeLoader, extractLoaderPayload, fetchChatGptShareHtml, parseChatGpt
 
 // By default only users and the last final answer of each turn are exported.
 // Opt-in flags affect only material actually available in the public share.
-const REASONING_TYPES = new Set(['thoughts', 'reasoning_recap', 'reasoning', 'analysis']);
+const REASONING_TYPES = new Set(['reasoning_recap']);
+// Never export raw thinking, analysis-channel contents or private model context.
+// Only explicit public reasoning recaps may be selected.
 const TOOL_TYPES = new Set(['tool_response', 'execution_output', 'tool_call', 'function_call']);
-const NEVER_EXPOSE = new Set(['model_editable_context', 'system_message', 'debug']);
+const NEVER_EXPOSE = new Set(['model_editable_context', 'system_message', 'debug', 'thoughts', 'reasoning', 'analysis']);
 const PUBLIC_TYPES = new Set(['text', 'multimodal_text', 'code', 'markdown', 'image', 'text_message']);
 const NON_ANSWER_PATTERN = /^(?:The output of this plugin was redacted\.?|(?:Tool parameters|工具参数)\s*:|已搜索\s*\d+\s*个网站|思考了\s*\d+(?:\.\d+)?\s*s|Searched\s+\d+\s+sites?|Thought for\s+\d+(?:\.\d+)?\s*s)$/i;
 
-// Deliberately non-configurable: exported transcripts contain only user messages
-// and ChatGPT's final answers. Neither the UI nor API can opt back into
-// reasoning, commentary, tool calls or tool output.
-export function normalizeOptions() {
+// Default remains final-only. Explicit choices can include additional
+// user-visible material from a public share, but never hidden analysis.
+export function normalizeOptions(options = {}) {
   return {
-    includeReasoning: false,
-    includeTools: false,
-    includeProgress: false
+    includeReasoning: options?.includeReasoning === true,
+    includeTools: options?.includeTools === true,
+    includeProgress: options?.includeProgress === true
   };
 }
 
@@ -31,7 +32,8 @@ function categoryOf(m) {
   if (m.metadata?.is_visually_hidden_from_conversation === true || NEVER_EXPOSE.has(type)) return 'skip';
   if (m.role === 'user') return 'user';
   const channel = channelOf(m);
-  if (REASONING_TYPES.has(type) || channel === 'analysis') return 'reasoning';
+  if (channel === 'analysis') return 'skip';
+  if (REASONING_TYPES.has(type)) return 'reasoning';
   const recipient = m.recipient ?? m.metadata?.recipient;
   if (m.role === 'tool' || TOOL_TYPES.has(type) || (recipient && !['all', 'user'].includes(recipient)) ||
       (type === 'code' && m.endTurn !== true && channel !== 'final')) return 'tools';
@@ -57,7 +59,7 @@ function outputMessage(m, index, category) {
 
 export function filterVisibleMessages(source, options = {}) {
   if (!Array.isArray(source)) return [];
-  const opts = normalizeOptions();
+  const opts = normalizeOptions(options);
   const visible = [];
   let assistantTurn = [];
   function flush() {
@@ -170,7 +172,7 @@ async function readDirect(sourceUrl, options) {
   const parsed = parseChatGptShareHtml(html);
   const raw = getRawConversation(html);
   if (!raw) throw new Error('无法读取原始消息元数据。');
-  const messages = filterVisibleMessages(mapDirectMessages(parsed.replies, raw));
+  const messages = filterVisibleMessages(mapDirectMessages(parsed.replies, raw), options);
   return {
     title: parsed.title || 'ChatGPT 分享对话',
     model: parsed.aiModel || null,
@@ -247,8 +249,9 @@ export async function readViaRelay(sourceUrl, fetchImpl, options = {}) {
       if (Number.isFinite(expected) && offset + payload.messages.length < expected) {
         throw Object.assign(new Error('对话未读取完整。'), { code: 'parse_failed' });
       }
-      const messages = filterVisibleMessages(collected);
+      const messages = filterVisibleMessages(collected, options);
       const warnings = Array.isArray(firstPage.warnings) ? [...firstPage.warnings] : [];
+      if (options.includeReasoning || options.includeTools) warnings.push('当前使用备用读取通道，公开思考摘要和工具过程可能无法完整提供。');
       if (collected.some(m => m.text?.includes('…[message truncated at'))) {
         warnings.push('备用读取服务已截断过长的单条消息。');
       }
@@ -272,10 +275,10 @@ export async function readViaRelay(sourceUrl, fetchImpl, options = {}) {
 
 export async function readSharedConversation(sourceUrl, _options = {}, fetchImpl = fetch) {
   try {
-    return await readDirect(sourceUrl);
+    return await readDirect(sourceUrl, normalizeOptions(_options));
   } catch (directError) {
     try {
-      return await readViaRelay(sourceUrl, fetchImpl);
+      return await readViaRelay(sourceUrl, fetchImpl, normalizeOptions(_options));
     } catch {
       const status = directError.status;
       throw Object.assign(directError, {
