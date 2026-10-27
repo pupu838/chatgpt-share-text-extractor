@@ -1,6 +1,7 @@
 import { paginateLayouts, imagePageHeight, MAX_PAGE_HEIGHT, IMAGE_WIDTH, HEADER_HEIGHT, MESSAGE_GAP } from './pagination.js';
 import { createZip } from './zip.js';
 import { drawPageNumberBadge } from './page-badge.js';
+import { makePhotoShareFiles, pagePngFilename } from './photo-share.js';
 const form = document.querySelector('#extractForm');
 const input = document.querySelector('#shareUrl');
 const submitBtn = document.querySelector('#submitBtn');
@@ -13,6 +14,8 @@ const warnings = document.querySelector('#warnings');
 const copyBtn = document.querySelector('#copyBtn');
 const downloadBtn = document.querySelector('#downloadBtn');
 const downloadImageBtn = document.querySelector('#downloadImageBtn');
+const savePhotosBtn = document.querySelector('#savePhotosBtn');
+const photoStatus = document.querySelector('#photoStatus');
 const imageResult = document.querySelector('#imageResult');
 const imageMeta = document.querySelector('#imageMeta');
 const imageGallery = document.querySelector('#imageGallery');
@@ -20,6 +23,7 @@ const imageGallery = document.querySelector('#imageGallery');
 let latest = null;
 let latestImages = [];
 let generationNumber = 0;
+let sharingPhotos = false;
 function clearImages() {
   for (const entry of latestImages) URL.revokeObjectURL(entry.url);
   latestImages = [];
@@ -34,6 +38,43 @@ function showStatus(message, kind = 'info') {
 function hideStatus() {
   statusBox.className = 'status hidden';
   statusBox.textContent = '';
+}
+
+function showPhotoStatus(message, kind = 'info') {
+  photoStatus.textContent = message;
+  photoStatus.className = 'photo-status' + (kind === 'error' ? ' error' : '');
+  if (!message) photoStatus.classList.add('hidden');
+}
+
+// Safari's Web Share API can offer an iOS Photos save action, depending on
+// the system/browser. The website cannot write to Photos or validate its order.
+async function openPhotoShareSheet(files) {
+  if (sharingPhotos) return;
+  if (typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function') {
+    showPhotoStatus('当前浏览器无法分享图片文件。请用 iPhone 的 Safari 打开本站；也可以下载 PNG，或长按下方图片选择存储到照片。', 'error');
+    return;
+  }
+  if (!navigator.canShare({ files })) {
+    showPhotoStatus('系统无法一次分享这组图片（可能超过设备的大小或数量限制）。可尝试下方每张图片的「保存到相册」，或下载 ZIP。', 'error');
+    return;
+  }
+  sharingPhotos = true;
+  savePhotosBtn.disabled = true;
+  try {
+    // No await or asynchronous preparation before share(): iOS requires the
+    // native sheet to be invoked within this click's transient activation.
+    await navigator.share({ files });
+    showPhotoStatus('系统分享菜单已关闭。如果你选择了「存储图像」，请到照片 App 检查。文件名和图片页码按阅读顺序编号；相册显示顺序仍由 iOS 控制。');
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      showPhotoStatus('已关闭系统分享菜单，未确认是否保存。如需保存可再次点击。');
+    } else {
+      showPhotoStatus('无法打开系统图片分享：' + (error?.message || '请改用 Safari 或下载功能。'), 'error');
+    }
+  } finally {
+    sharingPhotos = false;
+    savePhotosBtn.disabled = latestImages.length === 0;
+  }
 }
 
 function safeFilename(value) {
@@ -173,6 +214,8 @@ async function generateLongImage(data) {
   imageResult.classList.remove('hidden');
   imageMeta.textContent = '正在测量内容长度…';
   downloadImageBtn.disabled = true;
+  savePhotosBtn.disabled = true;
+  showPhotoStatus('图片生成完成后，可一次分享全部长图到 iPhone 的照片 App。');
 
   await document.fonts?.ready;
   const width = IMAGE_WIDTH;
@@ -279,8 +322,9 @@ async function generateLongImage(data) {
     const blob = await drawPage(pages[i], i, pages.length);
     if (generation !== generationNumber) return;
     const url = URL.createObjectURL(blob);
-    const filename = fileBase + '-ChatGPT-' + String(i + 1).padStart(2, '0') + '.png';
-    latestImages.push({ blob, url, filename });
+    const filename = pagePngFilename(fileBase, i + 1, pages.length);
+    const entry = { blob, url, filename, page: i + 1 };
+    latestImages.push(entry);
 
     const article = document.createElement('article');
     article.className = 'image-page';
@@ -288,12 +332,22 @@ async function generateLongImage(data) {
     heading.className = 'page-heading';
     const headingTitle = document.createElement('strong');
     headingTitle.textContent = '长图 ' + (i + 1) + ' / ' + pages.length;
+    const actions = document.createElement('div');
+    actions.className = 'page-actions';
+    const saveOne = document.createElement('button');
+    saveOne.className = 'secondary';
+    saveOne.type = 'button';
+    saveOne.textContent = '保存到相册';
+    saveOne.addEventListener('click', () => {
+      openPhotoShareSheet([new File([blob], filename, { type: 'image/png' })]);
+    });
     const action = document.createElement('button');
     action.className = 'secondary';
     action.type = 'button';
     action.textContent = '下载这一张 PNG';
     action.addEventListener('click', () => downloadBlob(blob, filename));
-    heading.append(headingTitle, action);
+    actions.append(saveOne, action);
+    heading.append(headingTitle, actions);
     const preview = document.createElement('div');
     preview.className = 'image-preview';
     const image = document.createElement('img');
@@ -308,6 +362,8 @@ async function generateLongImage(data) {
   imageMeta.textContent = '共 ' + latestImages.length + ' 张，每张宽 ' + width + 'px，最高 ' + MAX_PAGE_HEIGHT + 'px，不压缩缩小';
   downloadImageBtn.textContent = latestImages.length > 1 ? '打包下载全部 ' + latestImages.length + ' 张 ZIP' : '下载长图 PNG';
   downloadImageBtn.disabled = latestImages.length === 0;
+  savePhotosBtn.disabled = latestImages.length === 0;
+  showPhotoStatus('iPhone / iPad：点击「保存到相册」，在系统分享菜单中选择「存储 ' + latestImages.length + ' 张图像」（若系统提供）。长图和文件名都有连续编号，照片 App 最终排序由 iOS 决定。');
 }
 
 function downloadBlob(blob, filename) {
@@ -344,6 +400,8 @@ form.addEventListener('submit', async (event) => {
   result.classList.add('hidden');
   imageResult.classList.add('hidden');
   downloadImageBtn.disabled = true;
+  savePhotosBtn.disabled = true;
+  showPhotoStatus('');
   downloadImageBtn.textContent = '下载长图 PNG';
   warnings.classList.add('hidden');
   submitBtn.disabled = true;
@@ -377,6 +435,8 @@ form.addEventListener('submit', async (event) => {
     result.scrollIntoView({ behavior: 'smooth', block: 'start' });
     generateLongImage(latest).catch((error) => {
       imageMeta.textContent = error.message || '长图生成失败';
+      savePhotosBtn.disabled = true;
+      showPhotoStatus('长图生成失败，请重新提取后再试。', 'error');
     });
   } catch (error) {
     latest = null;
@@ -427,4 +487,16 @@ downloadImageBtn.addEventListener('click', async () => {
   } finally {
     downloadImageBtn.disabled = false;
   }
+});
+
+savePhotosBtn.addEventListener('click', () => {
+  if (!latestImages.length) return;
+  let files;
+  try {
+    files = makePhotoShareFiles(latestImages);
+  } catch (error) {
+    showPhotoStatus(error?.message || '图片顺序检查失败，请重新生成。', 'error');
+    return;
+  }
+  openPhotoShareSheet(files);
 });
