@@ -100,23 +100,29 @@ test('relay fails closed on invalid pages', async () => {
   await assert.rejects(() => readViaRelay('https://chatgpt.com/share/synthetic', mockFetch), /分页数据不完整/);
 });
 
-test('rejects all attempted opt-in flags from callers and public APIs', async () => {
+test('user can opt into public recap, tools and progress independently', () => {
   assert.deepEqual(normalizeOptions({
     includeReasoning: true, includeTools: true, includeProgress: true
-  }), { includeReasoning: false, includeTools: false, includeProgress: false });
+  }), { includeReasoning: true, includeTools: true, includeProgress: true });
   const messages = [
     { role: 'user', text: 'Question' },
-    { role: 'assistant', text: 'Reasoning', contentType: 'reasoning_recap' },
+    { role: 'assistant', text: 'Hidden thinking', contentType: 'thoughts' },
+    { role: 'assistant', text: 'Hidden analysis', channel: 'analysis', contentType: 'text' },
+    { role: 'assistant', text: 'Public recap', contentType: 'reasoning_recap' },
     { role: 'assistant', text: 'Tool output', contentType: 'tool_response' },
+    { role: 'assistant', text: 'Hidden tool output', contentType: 'tool_response',
+      metadata: { is_visually_hidden_from_conversation: true } },
     { role: 'assistant', text: 'Commentary', channel: 'commentary' },
     { role: 'assistant', text: 'Answer', channel: 'final' }
   ];
   assert.deepEqual(filterVisibleMessages(messages, {
     includeReasoning: true, includeTools: true, includeProgress: true
-  }).map(m => m.text), ['Question', 'Answer']);
+  }).map(m => m.text), ['Question', 'Public recap', 'Tool output', 'Commentary', 'Answer']);
+  assert.deepEqual(filterVisibleMessages(messages, { includeProgress: true })
+    .map(m => m.text), ['Question', 'Commentary', 'Answer']);
 });
 
-test('even explicit relay options cannot re-enable internal content', async () => {
+test('even opt-in choices do not request raw internal data from relay', async () => {
   const requests = [];
   const mockFetch = async (_url, init) => {
     const args = JSON.parse(init.body).params.arguments;
