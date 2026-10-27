@@ -2,6 +2,7 @@ import { paginateLayouts, imagePageHeight, MAX_PAGE_HEIGHT, IMAGE_WIDTH, HEADER_
 import { createZip } from './zip.js';
 import { drawPageNumberBadge } from './page-badge.js';
 import { makePhotoShareFiles, pagePngFilename } from './photo-share.js';
+import { parseRichLines, renderRichLines, layoutRichLines, heightOfRichLines, paintRichLine } from './rich-render.js';
 const form = document.querySelector('#extractForm');
 const input = document.querySelector('#shareUrl');
 const submitBtn = document.querySelector('#submitBtn');
@@ -88,38 +89,21 @@ function safeFilename(value) {
     .slice(0, 80) || 'chatgpt-conversation';
 }
 
-function cleanMarkdown(text) {
-  return text
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/^>\s?/gm, '')
-    .replace(/`([^`]+)`/g, '$1');
-}
-
-function wrapLines(ctx, text, maxWidth) {
-  if (!String(text).trim()) return [];
-  const lines = [];
-  for (const paragraph of String(text).split('\n')) {
-    if (!paragraph) {
-      lines.push('');
-      continue;
-    }
-    let line = '';
-    for (const char of paragraph) {
-      const candidate = line + char;
-      if (line && ctx.measureText(candidate).width > maxWidth) {
-        lines.push(line);
-        line = char;
-      } else {
-        line = candidate;
-      }
-    }
-    lines.push(line);
+function renderTranscript(messages) {
+  const fragment = document.createDocumentFragment();
+  for (const message of messages || []) {
+    const article = document.createElement('article');
+    article.className = 'transcript-message ' + (message.role === 'user' ? 'from-user' : 'from-assistant');
+    const label = document.createElement('div');
+    label.className = 'transcript-role';
+    label.textContent = message.displayRole || (message.role === 'user' ? '用户' : 'ChatGPT');
+    const body = document.createElement('div');
+    body.className = 'rich-body';
+    body.appendChild(renderRichLines(parseRichLines(message.text || '')));
+    article.append(label, body);
+    fragment.appendChild(article);
   }
-  return lines;
+  transcript.replaceChildren(fragment);
 }
 
 function loadImage(url) {
@@ -191,12 +175,10 @@ function drawChatGptMark(ctx, x, y) {
 
 function layoutMessage(ctx, message, contentWidth, media = []) {
   const isUser = message.role === 'user';
-  const fontSize = 27;
-  const lineHeight = 43;
-  ctx.font = `${fontSize}px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif`;
-  const maxTextWidth = isUser ? 650 : contentWidth - 78;
-  const label = message.section && !['user', 'answer'].includes(message.section) ? '[' + (message.displayRole || '过程') + ']\n' : '';
-  const lines = wrapLines(ctx, label + cleanMarkdown(message.text || ''), maxTextWidth);
+  const maxTextWidth = isUser ? 622 : contentWidth - 78;
+  const label = message.section && !['user', 'answer'].includes(message.section)
+    ? '[' + (message.displayRole || '过程') + ']\n' : '';
+  const lines = layoutRichLines(ctx, parseRichLines(label + (message.text || '')), maxTextWidth);
   const paddingY = isUser ? 22 : 4;
   const mediaItems = media.map((item) => {
     const width = Math.min(650, item.width || 650);
@@ -204,10 +186,9 @@ function layoutMessage(ctx, message, contentWidth, media = []) {
     return { ...item, drawWidth: width, drawHeight: height };
   });
   const mediaHeight = mediaItems.reduce((sum, item) => sum + item.drawHeight + 14, 0);
-  const textHeight = lines.length * lineHeight;
   return {
-    isUser, lines, lineHeight, maxTextWidth, media: mediaItems,
-    height: Math.max(48, textHeight + mediaHeight + paddingY * 2)
+    isUser, lines, lineHeight: 43, maxTextWidth, media: mediaItems,
+    height: Math.max(48, heightOfRichLines(lines) + mediaHeight + paddingY * 2)
   };
 }
 
@@ -264,10 +245,7 @@ async function generateLongImage(data) {
     ctx.font = '27px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif';
     ctx.textBaseline = 'top';
     if (layout.isUser) {
-      const widestText = layout.lines.length ? Math.max(...layout.lines.map((line) => ctx.measureText(line).width)) : 0;
-      const widestMedia = layout.media.length ? Math.max(...layout.media.map((item) => item.drawWidth)) : 0;
-      const widest = Math.min(layout.maxTextWidth, Math.max(widestText, widestMedia, 40));
-      const bubbleWidth = widest + 54;
+      const bubbleWidth = layout.maxTextWidth + 54;
       const x = width - side - bubbleWidth;
       ctx.fillStyle = '#f4f4f4';
       roundedRect(ctx, x, y, bubbleWidth, layout.height, 28);
@@ -284,7 +262,10 @@ async function generateLongImage(data) {
         contentY += item.drawHeight + 14;
       });
       ctx.fillStyle = '#0d0d0d';
-      layout.lines.forEach((line, lineIndex) => ctx.fillText(line, x + 27, contentY + lineIndex * layout.lineHeight));
+      for (const line of layout.lines) {
+        paintRichLine(ctx, line, x + 27, contentY, layout.maxTextWidth);
+        contentY += line.height || layout.lineHeight;
+      }
     } else {
       drawChatGptMark(ctx, side + 22, y + 24);
       let contentY = y + 4;
@@ -300,7 +281,10 @@ async function generateLongImage(data) {
         contentY += item.drawHeight + 14;
       });
       ctx.fillStyle = '#0d0d0d';
-      layout.lines.forEach((line, lineIndex) => ctx.fillText(line, side + 72, contentY + lineIndex * layout.lineHeight));
+      for (const line of layout.lines) {
+        paintRichLine(ctx, line, side + 72, contentY, layout.maxTextWidth);
+        contentY += line.height || layout.lineHeight;
+      }
     }
     y += layout.height + gap;
   });
@@ -431,7 +415,7 @@ form.addEventListener('submit', async (event) => {
     if (latest.messageCount != null) parts.push(`${latest.messageCount} 条消息`);
     if (latest.model) parts.push(`模型：${latest.model}`);
     meta.textContent = parts.join(' · ');
-    transcript.textContent = latest.text;
+    renderTranscript(latest.messages);
 
     if (latest.warnings?.length) {
       warnings.textContent = `解析提示：${latest.warnings.join('；')}`;
