@@ -106,6 +106,7 @@ export function parseRichLines(source){
   let at=0,m;while((m=tagRegex.exec(str))){
     add(str.slice(at,m.index));at=tagRegex.lastIndex;
     const tag=m[0],name=m[1].toLowerCase();
+    if(inCode){add(tag);continue;} // Code fences show source literally.
     if(!TAGS.has(name))continue; // Unknown markup is not executable.
     const closing=tag.startsWith('</'),self=tag.endsWith('/>'),a=attrs(tag);
     if(closing){
