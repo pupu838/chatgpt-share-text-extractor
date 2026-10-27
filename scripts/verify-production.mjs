@@ -12,10 +12,10 @@ async function check() {
   if (!response.ok) throw new Error('Front page status: ' + response.status);
   const html = await response.text();
   if (!html.includes('id="imageGallery"')) throw new Error('Missing PNG gallery');
-  for (const id of ['includeReasoning','includeTools','includeProgress']) {
-    if (html.includes('id="' + id + '"')) throw new Error('Obsolete intermediate-content toggle: ' + id);
+  for (const id of ['includeReasoning','includeTools','includeProgress', 'savePhotosBtn']) {
+    if (!html.includes('id="' + id + '"')) throw new Error('Missing export option or Photos button: ' + id);
   }
-  for (const file of ['/pagination.js','/zip.js','/page-badge.js','/app.js']) {
+  for (const file of ['/pagination.js','/zip.js','/page-badge.js','/photo-share.js','/app.js']) {
     const asset = await fetch(base + file + cacheBust(), {
       cache: 'no-store', signal: AbortSignal.timeout(15000)
     });
@@ -45,16 +45,21 @@ async function check() {
     throw new Error('Default output includes non-final content or misses answers');
   }
   const attemptedOptIn = await query({ includeReasoning: true, includeTools: true, includeProgress: true });
-  if (JSON.stringify(attemptedOptIn.map(m => [m.role, m.text])) !==
-      JSON.stringify(clean.map(m => [m.role, m.text]))) {
-    throw new Error('API exposed non-final content when opt-in flags were supplied');
+  const essential = messages => messages.filter(m => m.section === 'user' || m.section === 'answer')
+    .map(m => [m.role, m.text]);
+  if (JSON.stringify(essential(attemptedOptIn)) !== JSON.stringify(essential(clean))) {
+    throw new Error('Opt-in selection changed or lost primary conversation messages');
+  }
+  if (attemptedOptIn.some(m => ['thoughts','model_editable_context','analysis'].includes(m.contentType))) {
+    throw new Error('Opt-in output included hidden or internal thinking content');
   }
   console.log('PRODUCTION_VERIFIED', JSON.stringify({
     userAndFinalMessages: clean.length,
-    intermediateContentHidden: true,
+    optionalPublicContentSelectable: true,
     topRightPageBadge: true,
     pngPagination: true,
-    zipDownload: true
+    zipDownload: true,
+    saveToPhotosButton: true
   }));
 }
 let latest;
