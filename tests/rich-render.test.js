@@ -68,3 +68,15 @@ test('untrusted scripts cannot create executable preview content', () => {
   assert(!text.includes('onerror'));
   assert(text.includes('安全文本'));
 });
+
+test('code fences retain literal component snippets while normal content is formatted', () => {
+  const marker=String.fromCharCode(96).repeat(3);
+  const input=marker+'html\n<row gap={2}><badge>原始代码</badge></row>\n'+marker+'\n'+'<badge>正常标签</badge>';
+  const lines=parseRichLines(input);
+  const code=lines.filter(x=>x.kind==='code').map(x=>x.runs.map(r=>r.text).join('')).join('\n');
+  assert(code.includes('<row gap={2}>'));
+  assert(code.includes('<badge>原始代码</badge>'));
+  const badges=lines.filter(x=>x.runs.some(r=>r.style.badge));
+  assert.equal(badges.length,1);
+  assert(badges[0].runs.some(r=>r.text.includes('正常标签')));
+});
