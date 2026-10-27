@@ -81,3 +81,12 @@ pre { margin: 0; padding: 24px; white-space: pre-wrap; overflow-wrap: anywhere; 
   .page-heading { flex-wrap: wrap; }
   .page-heading button { min-height: 40px; }
 }
+
+/* Native iOS Photos share flow and page-level fallbacks. */
+.photo-status { margin: 16px 22px; padding: 12px 14px; color: var(--muted); font-size: 13px; line-height: 1.6; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.photo-status.error { color: #ffd0d0; border-color: rgba(255,123,123,.5); }
+.page-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 720px) {
+  .page-actions { flex: 1 1 100%; justify-content: stretch; }
+  .page-actions button { flex: 1 1 auto; }
+}
