@@ -19,6 +19,9 @@ const photoStatus = document.querySelector('#photoStatus');
 const imageResult = document.querySelector('#imageResult');
 const imageMeta = document.querySelector('#imageMeta');
 const imageGallery = document.querySelector('#imageGallery');
+const includeReasoning = document.querySelector('#includeReasoning');
+const includeTools = document.querySelector('#includeTools');
+const includeProgress = document.querySelector('#includeProgress');
 
 let latest = null;
 let latestImages = [];
@@ -412,7 +415,12 @@ form.addEventListener('submit', async (event) => {
     const response = await fetch('/api/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: input.value.trim() })
+      body: JSON.stringify({
+        url: input.value.trim(),
+        includeReasoning: includeReasoning.checked,
+        includeTools: includeTools.checked,
+        includeProgress: includeProgress.checked
+      })
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !body.ok) throw new Error(body.error || `请求失败 (${response.status})`);
