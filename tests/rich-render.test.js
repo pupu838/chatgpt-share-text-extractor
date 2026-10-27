@@ -32,6 +32,7 @@ test('DIL style tags become semantic lines without leaking markup', () => {
   assert(lines.some(line=>line.kind==='rule'));
   assert(lines.some(line=>line.kind==='table'));
   assert(lines.some(line=>line.runs.some(run=>run.style.badge)));
+  assert(lines.some(line=>line.runs.some(run=>run.style.badge)&&line.runs.some(run=>run.text.includes('距离考试还有46天'))));
   assert(lines.some(line=>line.runs.some(run=>run.style.bold)));
   assert(text.includes('🧠'));
   assert(text.includes('第一步：正式SRS'));
