@@ -23,7 +23,13 @@
             placeholder="https://chatgpt.com/share/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
           <button id="submitBtn" type="submit">提取对话</button>
         </div>
-        <p class="hint">仅展示用户消息和 ChatGPT 的正式回复；不会展示思考、工具调用或中间进度。</p>
+        <fieldset class="extract-options">
+          <legend>导出内容（默认仅用户消息与正式回复）</legend>
+          <label class="option-line"><input id="includeReasoning" type="checkbox" /> 显示分享页中的公开思考摘要</label>
+          <label class="option-line"><input id="includeTools" type="checkbox" /> 显示分享页中的工具过程</label>
+          <label class="option-line"><input id="includeProgress" type="checkbox" /> 显示中间进度消息</label>
+          <p class="option-note">三个选项可以独立选择，并同时应用到文字与长图。仅导出公开分享数据中存在且允许展示的内容；不包含模型内部推理、隐藏消息或私人数据。</p>
+        </fieldset>
         <p class="hint">仅处理公开的 <code>chatgpt.com/share/...</code> 链接，不支持私人 <code>/c/...</code> 对话。</p>
       </form>
     </section>
