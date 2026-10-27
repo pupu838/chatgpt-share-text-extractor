@@ -98,7 +98,12 @@ export function parseRichLines(source){
   function add(t){
     const parts=t.split('\n');
     for(let i=0;i<parts.length;i++){
-      if(i)flush(!parts[i].trim());
+      if(i) {
+        const inlineRow=stack.some(x=>x.name==='row') &&
+          !stack.some(x=>['box','card','col','grid','list','blockquote'].includes(x.name));
+        if(inlineRow&&!inCode&&parts[i].trim())pushRun(pending,' ',state(stack));
+        else flush(!parts[i].trim());
+      }
       if(parts[i])pushRun(pending,parts[i],state(stack));
     }
   }
