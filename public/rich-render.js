@@ -69,7 +69,15 @@ function lineFrom(runs,stack,codeMode=false){
   if(st.title&&kind==='p')kind='h3';
   // Preserve component-level inline styles when there is no markdown block marker.
   const unchanged=kind==='p'&&raw.trim()===value;
-  let result=unchanged?runs.flatMap(r=>inline(r.text,r.style)):inline(prefix+value,st);
+  const trimmedRuns=runs.map(r=>({text:r.text,style:r.style}));
+  // DSL indentation is source formatting, not intended visual whitespace.
+  while(trimmedRuns.length&& !trimmedRuns[0].text.trim())trimmedRuns.shift();
+  while(trimmedRuns.length&& !trimmedRuns.at(-1).text.trim())trimmedRuns.pop();
+  if(trimmedRuns.length) {
+    trimmedRuns[0].text=trimmedRuns[0].text.replace(/^\s+/,'');
+    trimmedRuns[trimmedRuns.length-1].text=trimmedRuns.at(-1).text.replace(/\s+$/,'');
+  }
+  let result=unchanged?trimmedRuns.flatMap(r=>inline(r.text,r.style)):inline(prefix+value,st);
   if(codeMode)result=[{text:t,style:{...st,code:true}}];
   return {kind,runs:result,...st};
 }
