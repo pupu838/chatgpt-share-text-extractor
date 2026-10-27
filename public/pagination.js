@@ -12,7 +12,7 @@ function pieceLayout(layout, entries) {
   const pad = layout.isUser ? 22 : 4;
   return {
     ...layout, lines, media,
-    height: Math.max(48, lines.length * layout.lineHeight +
+    height: Math.max(48, lines.reduce((sum, line) => sum + (line?.height || layout.lineHeight), 0) +
       media.reduce((total, m) => total + m.drawHeight + 14, 0) + pad * 2)
   };
 }
@@ -22,7 +22,7 @@ export function splitOversizedLayout(layout, budget) {
   const pad = layout.isUser ? 22 : 4;
   const entries = [
     ...layout.media.map(value => ({ kind: 'media', value, height: value.drawHeight + 14 })),
-    ...layout.lines.map(value => ({ kind: 'line', value, height: layout.lineHeight }))
+    ...layout.lines.map(value => ({ kind: 'line', value, height: value?.height || layout.lineHeight }))
   ];
   if (!entries.length) return [layout];
   const chunks = [];
