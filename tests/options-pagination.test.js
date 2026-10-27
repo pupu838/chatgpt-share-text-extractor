@@ -15,30 +15,27 @@ const testMessages = [
   { role: 'assistant', contentType: 'text', text: '**Final**', endTurn: true }
 ];
 
-test('options default to false, even if supplied as strings', () => {
+test('optional export filters default off and require booleans', () => {
   assert.deepEqual(normalizeOptions({ includeReasoning: 'true', includeTools: 'true' }), {
     includeReasoning: false, includeTools: false, includeProgress: false
   });
   assert.deepEqual(filterVisibleMessages(testMessages).map(m => m.text), ['Q', '**Final**']);
 });
 
-test('reasoning, tools and progress are never exposed, even if requested explicitly', () => {
-  const requestedModes = [
-    { includeReasoning: true },
-    { includeTools: true },
-    { includeProgress: true },
-    { includeReasoning: true, includeTools: true, includeProgress: true }
+test('independent content choices include public extras, excluding hidden raw thinking and memory', () => {
+  const modes = [
+    [{ includeReasoning: true }, ['Q', 'Public recap', '**Final**']],
+    [{ includeTools: true }, ['Q', 'Tool arguments', 'Tool output', '**Final**']],
+    [{ includeProgress: true }, ['Q', 'Searching...', '**Final**']],
+    [{ includeReasoning: true, includeTools: true, includeProgress: true },
+      ['Q', 'Public recap', 'Searching...', 'Tool arguments', 'Tool output', '**Final**']]
   ];
-  for (const mode of requestedModes) {
-    assert.deepEqual(normalizeOptions(mode), {
-      includeReasoning: false, includeTools: false, includeProgress: false
-    });
-    const filtered = filterVisibleMessages(testMessages, mode);
-    assert.deepEqual(filtered.map(m => m.text), ['Q', '**Final**']);
-    const transcript = formatTranscript(filtered);
-    assert(!/Public thinking summary|Public recap|Tool arguments|Tool output|Searching\.\.\.|system memory/.test(transcript));
-    assert(transcript.includes('ChatGPT:\n**Final**'));
+  for (const [mode, expected] of modes) {
+    assert.deepEqual(filterVisibleMessages(testMessages, mode).map(m => m.text), expected);
   }
+  assert(!filterVisibleMessages(testMessages, {
+    includeReasoning: true, includeTools: true, includeProgress: true
+  }).map(m => m.text).some(t => /Public thinking summary|system memory/.test(t)));
 });
 
 function layout(lines, media=[], isUser=false) {
