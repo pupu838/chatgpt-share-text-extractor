@@ -12,18 +12,21 @@ async function check() {
   if (!response.ok) throw new Error('Front page status: ' + response.status);
   const html = await response.text();
   if (!html.includes('id="imageGallery"')) throw new Error('Missing PNG gallery');
+  if (!html.includes('class="rich-transcript"')) throw new Error('Missing structured transcript preview');
+  if (html.includes('<pre id="transcript"')) throw new Error('Plain-text transcript still present');
   for (const id of ['includeReasoning','includeTools','includeProgress', 'savePhotosBtn']) {
     if (!html.includes('id="' + id + '"')) throw new Error('Missing export option or Photos button: ' + id);
   }
-  for (const file of ['/pagination.js','/zip.js','/page-badge.js','/photo-share.js','/app.js']) {
+  for (const file of ['/pagination.js','/zip.js','/page-badge.js','/photo-share.js','/rich-render.js','/app.js']) {
     const asset = await fetch(base + file + cacheBust(), {
       cache: 'no-store', signal: AbortSignal.timeout(15000)
     });
     if (!asset.ok) throw new Error('Missing frontend asset: ' + file);
     const code = await asset.text();
     if (!code || (file === '/app.js' &&
-        (!code.includes('paginateLayouts') || !code.includes('drawPageNumberBadge'))) ||
-        (file === '/page-badge.js' && !code.includes('export function drawPageNumberBadge'))) {
+        (!code.includes('paginateLayouts') || !code.includes('drawPageNumberBadge') || !code.includes('renderTranscript') || !code.includes('paintRichLine'))) ||
+        (file === '/page-badge.js' && !code.includes('export function drawPageNumberBadge')) ||
+        (file === '/rich-render.js' && (!code.includes('export function parseRichLines') || !code.includes('export function paintRichLine')))) {
       throw new Error('Outdated frontend script: ' + file);
     }
   }
@@ -59,7 +62,8 @@ async function check() {
     topRightPageBadge: true,
     pngPagination: true,
     zipDownload: true,
-    saveToPhotosButton: true
+    saveToPhotosButton: true,
+    richPreviewAndPng: true
   }));
 }
 let latest;
