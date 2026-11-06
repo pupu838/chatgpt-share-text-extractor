@@ -1,6 +1,6 @@
 name: Deploy Classroom Workbench (EdgeOne)
 # Persistent overseas classroom entry
-# Release 0.10.2: verified audio repair, corrected visible runtime version and installer link (2026-11-06)
+# Release 0.10.3: multi-view player 3.5x, 4x, 4.5x, 5x speed options (2026-11-06)
 on:
   workflow_dispatch:
   push:
