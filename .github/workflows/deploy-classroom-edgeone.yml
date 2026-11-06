@@ -1,6 +1,6 @@
 name: Deploy Classroom Workbench (EdgeOne)
 # Persistent overseas classroom entry
-# Release 0.10.1: prioritize native classroom audio and reduce multi-view buffering (2026-10-25)
+# Release 0.10.2: repair audio track switching, sync drift and native recovery (2026-11-06)
 on:
   workflow_dispatch:
   push:
