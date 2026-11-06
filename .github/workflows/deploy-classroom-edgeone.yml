@@ -1,6 +1,6 @@
 name: Deploy Classroom Workbench (EdgeOne)
 # Persistent overseas classroom entry
-# Release 0.10.4: repair independent audio switching at 2x–5x without premature fallback (2026-11-06)
+# Release 0.10.5: urgent rollback of broken audio handoff, restore reliable 1x switching (2026-11-06)
 on:
   workflow_dispatch:
   push:
