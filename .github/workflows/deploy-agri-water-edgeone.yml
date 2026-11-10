@@ -6,8 +6,6 @@ on:
     branches: [master]
     paths:
       - .github/workflows/deploy-agri-water-edgeone.yml
-  schedule:
-    - cron: '*/15 * * * *'
 
 permissions:
   contents: read
@@ -55,7 +53,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Validate 100 papers and CORS-safe CNKI search
+      - name: Validate literature records and CORS-safe CNKI search
         if: steps.cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
@@ -71,11 +69,11 @@ jobs:
           const end=html.indexOf(';'+String.fromCharCode(10)+'const categories=',start);
           if(start<0||end<start)throw new Error('Paper JSON array missing');
           const papers=JSON.parse(html.slice(start+marker.length,end));
-          if (papers.length!==100 || papers.some(p=>!p.title||!p.authors)) throw new Error('Paper data incomplete');
+          if (!Array.isArray(papers) || papers.length<100 || papers.some(p=>!p.title||!p.authors)) throw new Error('Paper data incomplete (minimum 100 complete records required)');
           if (!html.includes("cnkiSearchUrl") || !html.includes("encodeURIComponent(keywords)") || !html.includes("korder=SU")) throw new Error('CNKI GET title+author link missing');
           if (!html.includes("TI%=") || !html.includes("AND AU=") || !html.includes("copyCnkiExpert")) throw new Error('CNKI strict expert search expression missing');
           if (html.includes("form.method='POST'") || html.includes("submitCnkiExpert") || html.includes("data-cnki")) throw new Error('Old CORS-blocked CNKI form still exists');
-          console.log('PASS: 100 papers, script syntax, CNKI GET title+author search, expert expression copy, no cross-site POST.');
+          console.log(`PASS: ${papers.length} papers, script syntax, CNKI GET title+author search, expert expression copy, no cross-site POST.`);
           JS
 
       - name: Publish as a NEW EdgeOne Makers site
