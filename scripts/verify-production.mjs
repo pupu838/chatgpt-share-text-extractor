@@ -37,8 +37,12 @@ async function check() {
       body: JSON.stringify({ url: share, ...flags }),
       signal: AbortSignal.timeout(45000)
     });
-    const body = await result.json();
-    if (!result.ok || !body.ok) throw new Error('Extract status: ' + result.status);
+    const body = await result.json().catch(() => null);
+    if (!result.ok || !body?.ok) {
+      const code = typeof body?.code === 'string' && /^[a-z_]+$/.test(body.code) ? ' (' + body.code + ')' : '';
+      throw new Error('Extract status: ' + result.status + code);
+    }
+    if (body.data.source !== 'public_json') throw new Error('Live extractor did not read the public JSON source');
     return body.data.messages || [];
   };
   const clean = await query({});
@@ -57,6 +61,7 @@ async function check() {
     throw new Error('Opt-in output included hidden or internal thinking content');
   }
   console.log('PRODUCTION_VERIFIED', JSON.stringify({
+    source: 'public_json',
     userAndFinalMessages: clean.length,
     optionalPublicContentSelectable: true,
     topRightPageBadge: true,

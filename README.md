@@ -61,9 +61,9 @@ PORT=3000
 
 ## 工作方式 · How it works
 
-浏览器前端不会直接请求 ChatGPT 分享页，而是请求本站 `/api/extract`。服务端使用 `chatgpt-share-parser` 解析公开分享页。现代 ChatGPT 分享页可能把对话放在 React Server Components / Flight 数据中，而不是简单可读的 HTML，因此这种方式比 DOM 正则抓取更稳健。
+浏览器请求本站的 `/api/extract`。服务端优先读取 ChatGPT 的匿名分享 JSON，并用 `chatgpt-share-parser` 整理消息和附件格式。对仍在 HTML 中提供对话数据的分享页，服务端也支持原来的 HTML 格式。
 
-The browser calls this site's `/api/extract` endpoint. The server uses `chatgpt-share-parser` to read public share data, including conversations embedded in React Server Components / Flight payloads.
+The browser calls this site's `/api/extract` endpoint. The server reads ChatGPT's anonymous share JSON and uses `chatgpt-share-parser` to format messages and attachments. It also supports older shares that include conversation data in the HTML.
 
 ## 限制和失败场景 · Limitations
 
